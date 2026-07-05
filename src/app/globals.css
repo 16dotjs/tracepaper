@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+:root {
+  --bp-navy: #0f2a3d;
+  --bp-navy-deep: #0a1f2e;
+  --bp-line: #e8f1f5;
+  --bp-steel: #6b8fa3;
+  --bp-red: #d4552e;
+  --bp-cream: #f5f1e8;
+
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-sans: "Inter", ui-sans-serif, sans-serif;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--bp-navy-deep);
+  color: var(--bp-line);
+  font-family: var(--font-sans);
+}
+
+.bp-svg text {
+  font-family: var(--font-mono);
+  fill: var(--bp-line);
+}
+.bp-svg .room-label {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.bp-svg .file-label {
+  font-size: 12.5px;
+  fill: var(--bp-steel);
+  cursor: pointer;
+}
+.bp-svg .file-label:hover {
+  fill: var(--bp-cream);
+}
+.bp-svg .file-label.active-file {
+  fill: var(--bp-red);
+  font-weight: 500;
+}
+.bp-svg .overflow-label {
+  font-size: 11.5px;
+  fill: var(--bp-steel);
+  opacity: 0.55;
+  font-style: italic;
+}
+.bp-svg .heading {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.bp-svg .meta-label {
+  font-size: 10px;
+  fill: var(--bp-steel);
+  letter-spacing: 1px;
+}
+.bp-svg .meta-value {
+  font-size: 11px;
+}
+.bp-svg .note-num {
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--bp-red);
+}
+.bp-svg .note-text {
+  font-size: 12px;
+  fill: var(--bp-cream);
+}
+.bp-svg .section-label {
+  font-size: 11px;
+  fill: var(--bp-steel);
+  letter-spacing: 1.5px;
+}
+.bp-svg .room-rect,
+.bp-svg .divider {
+  fill: none;
+  stroke: var(--bp-line);
+  stroke-width: 1.4;
+}
+.bp-svg .divider {
+  stroke: var(--bp-steel);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+.bp-svg .annotation {
+  fill: none;
+  stroke: var(--bp-red);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+}
+.bp-svg .spotlight-line {
+  fill: none;
+  stroke: var(--bp-red);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  opacity: 0;
+}
+.bp-svg .badge-circle {
+  fill: var(--bp-red);
+}
+.bp-svg .badge-text {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--bp-navy-deep);
+  text-anchor: middle;
+}
+.bp-svg .pulse-dot {
+  fill: var(--bp-red);
+}
+
+@keyframes draw-loop {
+  0% {
+    stroke-dashoffset: 240;
+  }
+  50% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -240;
+  }
+}
+
+.loading-box-rect {
+  fill: none;
+  stroke: var(--bp-red);
+  stroke-width: 2;
+  stroke-dasharray: 12 8;
+  animation: draw-loop 1.6s linear infinite;
+}

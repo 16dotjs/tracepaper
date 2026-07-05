@@ -1,0 +1,197 @@
+"use client";
+
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import BlueprintTree from "@/components/BlueprintTree";
+import { buildFolderTree } from "@/lib/repoTree";
+
+interface AnalyzeResponse {
+  repoInfo: { owner: string; repo: string; defaultBranch: string };
+  files: { path: string; type: string }[];
+  overview: {
+    summary: string;
+    techStack: string[];
+    startHere: { path: string; reason: string }[];
+  };
+}
+
+interface AnalyzeError {
+  message: string;
+  status: number;
+}
+
+function errorHeadline(err: AnalyzeError): string {
+  if (err.status === 404) return "Repo not found";
+  if (err.status === 403 || err.status === 429) return "Rate limited";
+  if (err.status === 400) return "Invalid repo";
+  return "Something went wrong";
+}
+
+function LoadingIndicator({ repoUrl }: { repoUrl: string }) {
+  return (
+    <div className="flex flex-col items-center gap-4">
+      <svg viewBox="0 0 120 80" className="w-24 h-16">
+        <rect
+          className="loading-box-rect"
+          x="4"
+          y="4"
+          width="112"
+          height="72"
+          rx="2"
+        />
+      </svg>
+      <p className="font-mono text-[var(--bp-steel)] text-sm">
+        Reading {repoUrl}…
+      </p>
+    </div>
+  );
+}
+
+/** Fully remounted on every key change (repoUrl or retry), so state always starts fresh
+ *  without needing any synchronous setState resets inside an effect. */
+function AnalyzeAttempt({
+  repoUrl,
+  onRetry,
+}: {
+  repoUrl: string;
+  onRetry: () => void;
+}) {
+  const router = useRouter();
+  const [data, setData] = useState<AnalyzeResponse | null>(null);
+  const [error, setError] = useState<AnalyzeError | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl }),
+    })
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok)
+          throw {
+            message: json.error ?? "Something went wrong.",
+            status: res.status,
+          };
+        if (!cancelled) setData(json);
+      })
+      .catch((err: AnalyzeError | Error) => {
+        if (cancelled) return;
+        if (err instanceof Error) {
+          setError({ message: err.message, status: 0 });
+        } else {
+          setError(err);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [repoUrl]);
+
+  if (loading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center">
+        <LoadingIndicator repoUrl={repoUrl} />
+      </main>
+    );
+  }
+
+  if (error || !data) {
+    const isRetryable =
+      !error ||
+      error.status === 403 ||
+      error.status === 429 ||
+      error.status === 0 ||
+      error.status >= 500;
+    return (
+      <main className="min-h-screen flex items-center justify-center px-6">
+        <div className="text-center max-w-sm">
+          <p className="font-mono text-[var(--bp-red)] text-sm font-bold mb-2">
+            {error ? errorHeadline(error) : "Something went wrong"}
+          </p>
+          <p className="font-mono text-[var(--bp-steel)] text-xs mb-6">
+            {error?.message}
+          </p>
+          <div className="flex gap-3 justify-center">
+            {isRetryable && (
+              <button
+                onClick={onRetry}
+                className="font-mono text-xs border border-[var(--bp-steel)] rounded-sm px-4 py-2 hover:border-[var(--bp-red)] hover:text-[var(--bp-red)] transition-colors"
+              >
+                ↻ Retry
+              </button>
+            )}
+            <button
+              onClick={() => router.push("/")}
+              className="font-mono text-xs border border-[var(--bp-steel)] rounded-sm px-4 py-2 hover:border-[var(--bp-cream)] hover:text-[var(--bp-cream)] transition-colors"
+            >
+              ← Try another repo
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  const folders = buildFolderTree(data.files, data.overview.startHere);
+
+  return (
+    <main className="min-h-screen px-6 py-10">
+      <div className="max-w-4xl mx-auto">
+        <p className="font-mono text-sm text-[var(--bp-line)] mb-8">
+          {data.overview.summary}
+        </p>
+        <BlueprintTree
+          owner={data.repoInfo.owner}
+          repo={data.repoInfo.repo}
+          branch={data.repoInfo.defaultBranch}
+          folders={folders}
+          techStack={data.overview.techStack}
+        />
+      </div>
+    </main>
+  );
+}
+
+function AnalyzeShell() {
+  const params = useSearchParams();
+  const repoUrl = params.get("repo") ?? "";
+  const [attempt, setAttempt] = useState(0);
+
+  if (!repoUrl) {
+    return (
+      <main className="min-h-screen flex items-center justify-center px-6">
+        <p className="font-mono text-[var(--bp-red)] text-sm">
+          No repo specified.
+        </p>
+      </main>
+    );
+  }
+
+  return (
+    <AnalyzeAttempt
+      key={`${repoUrl}::${attempt}`}
+      repoUrl={repoUrl}
+      onRetry={() => setAttempt((n) => n + 1)}
+    />
+  );
+}
+
+export default function AnalyzePage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center" />
+      }
+    >
+      <AnalyzeShell />
+    </Suspense>
+  );
+}

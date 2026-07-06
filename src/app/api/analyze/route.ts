@@ -46,7 +46,6 @@ export async function POST(request: NextRequest) {
     );
     const keyFiles = selectKeyFiles(fullTree);
 
-    // Only fetch full content for a handful of top-priority files — not all 40.
     const coreFilePaths = keyFiles.slice(0, CORE_FILE_LIMIT).map((f) => f.path);
     const coreFileResults = await Promise.allSettled(
       coreFilePaths.map(async (path) => ({
@@ -79,7 +78,6 @@ export async function POST(request: NextRequest) {
       overview,
     });
   } catch (err) {
-    console.error("Analyze route failed:", err);
     if (err instanceof GitHubApiError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
     }

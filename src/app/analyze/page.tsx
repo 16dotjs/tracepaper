@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import BlueprintTree from "@/components/BlueprintTree";
+import BlueprintTree, { BlueprintTreeHandle } from "@/components/BlueprintTree";
+import QABox from "@/components/QABox";
 import { buildFolderTree } from "@/lib/repoTree";
 
 interface AnalyzeResponse {
@@ -41,14 +42,12 @@ function LoadingIndicator({ repoUrl }: { repoUrl: string }) {
         />
       </svg>
       <p className="font-mono text-[var(--bp-steel)] text-sm">
-        Reading {repoUrl}…
+        reading {repoUrl}…
       </p>
     </div>
   );
 }
 
-/** Fully remounted on every key change (repoUrl or retry), so state always starts fresh
- *  without needing any synchronous setState resets inside an effect. */
 function AnalyzeAttempt({
   repoUrl,
   onRetry,
@@ -57,6 +56,7 @@ function AnalyzeAttempt({
   onRetry: () => void;
 }) {
   const router = useRouter();
+  const treeRef = useRef<BlueprintTreeHandle>(null);
   const [data, setData] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<AnalyzeError | null>(null);
   const [loading, setLoading] = useState(true);
@@ -141,6 +141,7 @@ function AnalyzeAttempt({
   }
 
   const folders = buildFolderTree(data.files, data.overview.startHere);
+  const allPaths = data.files.map((f) => f.path);
 
   return (
     <main className="min-h-screen px-6 py-10">
@@ -149,11 +150,22 @@ function AnalyzeAttempt({
           {data.overview.summary}
         </p>
         <BlueprintTree
+          ref={treeRef}
           owner={data.repoInfo.owner}
           repo={data.repoInfo.repo}
           branch={data.repoInfo.defaultBranch}
           folders={folders}
           techStack={data.overview.techStack}
+        />
+        <QABox
+          owner={data.repoInfo.owner}
+          repo={data.repoInfo.repo}
+          branch={data.repoInfo.defaultBranch}
+          allPaths={allPaths}
+          onAnswer={(relevantFiles) => {
+            if (relevantFiles[0])
+              treeRef.current?.spotlightPath(relevantFiles[0]);
+          }}
         />
       </div>
     </main>

@@ -6,6 +6,7 @@ import BlueprintTree, { BlueprintTreeHandle } from "@/components/BlueprintTree";
 import { LightningIcon } from "@phosphor-icons/react";
 import QABox from "@/components/QABox";
 import { buildFolderTree } from "@/lib/repoTree";
+import { addRecentRepo } from "@/lib/recentRepos";
 
 interface AnalyzeResponse {
   repoInfo: { owner: string; repo: string; defaultBranch: string };
@@ -78,7 +79,10 @@ function AnalyzeAttempt({
             message: json.error ?? "Something went wrong.",
             status: res.status,
           };
-        if (!cancelled) setData(json);
+        if (!cancelled) {
+          setData(json);
+          addRecentRepo(json.repoInfo.owner, json.repoInfo.repo);
+        }
       })
       .catch((err: AnalyzeError | Error) => {
         if (cancelled) return;

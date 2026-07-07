@@ -58,6 +58,11 @@ body {
   fill: var(--bp-steel);
   opacity: 0.55;
   font-style: italic;
+  cursor: pointer;
+}
+.bp-svg .overflow-label:hover {
+  opacity: 1;
+  fill: var(--bp-cream);
 }
 .bp-svg .heading {
   font-size: 20px;

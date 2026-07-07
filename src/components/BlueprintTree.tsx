@@ -45,8 +45,10 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
         { el: SVGGraphicsElement; file: TreeFolder["files"][number] }
       >
     >({});
+    const hasAnimatedIntroRef = useRef(false);
     const [selected, setSelected] = useState<SelectedFile | null>(null);
     const [showCode, setShowCode] = useState(false);
+    const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
 
     const handleFileClick = useCallback(
       async (id: string) => {
@@ -125,6 +127,15 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
       [handleFileClick],
     );
 
+    const toggleRoom = useCallback((folderName: string) => {
+      setExpandedRooms((prev) => {
+        const next = new Set(prev);
+        if (next.has(folderName)) next.delete(folderName);
+        else next.add(folderName);
+        return next;
+      });
+    }, []);
+
     useEffect(() => {
       const svg = svgRef.current;
       if (!svg) return;
@@ -144,10 +155,14 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
       const gap = 22;
 
       const rooms = folders.map((folder) => {
-        const visibleFiles = folder.files.slice(0, MAX_VISIBLE_FILES);
-        const overflow = folder.files.length - visibleFiles.length;
-        const height =
-          30 + 12 + visibleFiles.length * 20 + (overflow > 0 ? 20 : 0) + 16;
+        const isExpanded = expandedRooms.has(folder.name);
+        const hasToggle = folder.files.length > MAX_VISIBLE_FILES;
+        const visibleFiles = isExpanded
+          ? folder.files
+          : folder.files.slice(0, MAX_VISIBLE_FILES);
+        const overflowCount = folder.files.length - visibleFiles.length;
+        const toggleHeight = hasToggle ? 20 : 0;
+        const height = 30 + 12 + visibleFiles.length * 20 + toggleHeight + 16;
         const col = colY[0] <= colY[1] ? 0 : 1;
         const room = {
           folder,
@@ -156,7 +171,9 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
           width: colWidth,
           height,
           visibleFiles,
-          overflow,
+          overflowCount,
+          hasToggle,
+          isExpanded,
         };
         colY[col] += height + gap;
         return room;
@@ -186,10 +203,16 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
         <line class="divider" x1="${room.x}" y1="${room.y + 32}" x2="${room.x + room.width}" y2="${room.y + 32}"/>`;
         room.visibleFiles.forEach((file, fi) => {
           const id = `f-${ri}-${fi}`;
-          markup += `<text class="file-label" id="${id}" x="${room.x + 30}" y="${room.y + 54 + fi * 20}">${file.name}</text>`;
+          const isExtra = fi >= MAX_VISIBLE_FILES;
+          markup += `<text class="file-label${isExtra ? " extra-row" : ""}" id="${id}" x="${room.x + 30}" y="${room.y + 54 + fi * 20}">${file.name}</text>`;
         });
-        if (room.overflow > 0) {
-          markup += `<text class="overflow-label" x="${room.x + 30}" y="${room.y + 54 + room.visibleFiles.length * 20}">+ ${room.overflow} more file${room.overflow > 1 ? "s" : ""}</text>`;
+        if (room.hasToggle) {
+          const toggleId = `toggle-${ri}`;
+          const ty = room.y + 54 + room.visibleFiles.length * 20;
+          const label = room.isExpanded
+            ? "− show less"
+            : `+ ${room.overflowCount} more file${room.overflowCount > 1 ? "s" : ""}`;
+          markup += `<text class="overflow-label" id="${toggleId}" x="${room.x + 30}" y="${ty}">${label}</text>`;
         }
         markup += `</g>`;
       });
@@ -222,57 +245,83 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
           fileElementsRef.current[id] = { el, file };
           el.addEventListener("click", () => handleFileClick(id));
         });
+        if (room.hasToggle) {
+          const toggleEl = svg.querySelector<SVGGraphicsElement>(
+            `#toggle-${ri}`,
+          );
+          if (toggleEl) {
+            toggleEl.addEventListener("click", () =>
+              toggleRoom(room.folder.name),
+            );
+          }
+        }
       });
 
       const roomRects = svg.querySelectorAll<SVGGeometryElement>(".room-rect");
       const dividers = svg.querySelectorAll<SVGGeometryElement>(".divider");
       const fileLabels = svg.querySelectorAll(".file-label, .overflow-label");
       const titleBlock = svg.querySelector<SVGGeometryElement>("#titleBlock")!;
+      const mainHeading = svg.querySelector("#mainHeading")!;
+      const sectionLabel = svg.querySelector(".section-label")!;
+      const pulseDot = svg.querySelector("#pulseDot")!;
       const annotationLayer = svg.querySelector("#annotationLayer")!;
       const notesLayer = svg.querySelector("#notesLayer")!;
 
-      prepDraw(titleBlock);
-      roomRects.forEach(prepDraw);
-      dividers.forEach(prepDraw);
-      gsap.set([...Array.from(fileLabels), svg.querySelector("#mainHeading")], {
-        opacity: 0,
-        y: 6,
-      });
-      gsap.set(svg.querySelector(".section-label"), { opacity: 0 });
-
+      const animate = !hasAnimatedIntroRef.current;
       const tl = gsap.timeline({ defaults: { ease: "power2.inOut" } });
-      tl.to(titleBlock, { strokeDashoffset: 0, duration: 0.6 })
-        .to(
-          svg.querySelector("#mainHeading"),
-          { opacity: 1, y: 0, duration: 0.5 },
-          "-=0.2",
-        )
-        .to(
-          Array.from(roomRects),
-          { strokeDashoffset: 0, duration: 0.5, stagger: 0.12 },
-          "+=0.1",
-        )
-        .to(
-          Array.from(dividers),
-          { strokeDashoffset: 0, duration: 0.3, stagger: 0.12 },
-          "<",
-        )
-        .to(
-          Array.from(fileLabels),
-          { opacity: 1, y: 0, duration: 0.3, stagger: 0.025 },
-          "-=0.4",
-        )
-        .to(svg.querySelector("#pulseDot"), { opacity: 1, duration: 0.2 })
-        .to(
-          svg.querySelector("#pulseDot"),
-          { opacity: 0.25, duration: 0.6, repeat: -1, yoyo: true },
-          "<",
-        )
-        .to(
-          svg.querySelector(".section-label"),
-          { opacity: 1, duration: 0.3 },
-          "-=0.1",
+
+      if (animate) {
+        prepDraw(titleBlock);
+        roomRects.forEach(prepDraw);
+        dividers.forEach(prepDraw);
+        gsap.set([...Array.from(fileLabels), mainHeading], {
+          opacity: 0,
+          y: 6,
+        });
+        gsap.set(sectionLabel, { opacity: 0 });
+
+        tl.to(titleBlock, { strokeDashoffset: 0, duration: 0.6 })
+          .to(mainHeading, { opacity: 1, y: 0, duration: 0.5 }, "-=0.2")
+          .to(
+            Array.from(roomRects),
+            { strokeDashoffset: 0, duration: 0.5, stagger: 0.12 },
+            "+=0.1",
+          )
+          .to(
+            Array.from(dividers),
+            { strokeDashoffset: 0, duration: 0.3, stagger: 0.12 },
+            "<",
+          )
+          .to(
+            Array.from(fileLabels),
+            { opacity: 1, y: 0, duration: 0.3, stagger: 0.025 },
+            "-=0.4",
+          )
+          .to(pulseDot, { opacity: 1, duration: 0.2 })
+          .to(
+            pulseDot,
+            { opacity: 0.25, duration: 0.6, repeat: -1, yoyo: true },
+            "<",
+          )
+          .to(sectionLabel, { opacity: 1, duration: 0.3 }, "-=0.1");
+      } else {
+        gsap.set(
+          [titleBlock, ...Array.from(roomRects), ...Array.from(dividers)],
+          { strokeDashoffset: 0 },
         );
+        gsap.set([...Array.from(fileLabels), mainHeading], {
+          opacity: 1,
+          y: 0,
+        });
+        gsap.set(sectionLabel, { opacity: 1 });
+        gsap.set(pulseDot, { opacity: 0.25 });
+        gsap.to(pulseDot, {
+          opacity: 0.6,
+          duration: 0.6,
+          repeat: -1,
+          yoyo: true,
+        });
+      }
 
       startHereFiles.forEach((file, i) => {
         const entry = Object.values(fileElementsRef.current).find(
@@ -293,37 +342,63 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
         ann.setAttribute("rx", String(rx));
         ann.setAttribute("ry", String(ry));
         annotationLayer.appendChild(ann);
-        prepDraw(ann as unknown as SVGGeometryElement);
 
         const badgeX = cx + rx + 14;
         const badge = document.createElementNS(NS, "g");
         badge.innerHTML = `<circle class="badge-circle" cx="${badgeX}" cy="${cy}" r="11"/><text class="badge-text" x="${badgeX}" y="${cy + 4}">${file.startHereOrder}</text>`;
         annotationLayer.appendChild(badge);
-        gsap.set(badge, {
-          opacity: 0,
-          scale: 0,
-          transformOrigin: `${badgeX}px ${cy}px`,
-        });
 
         const noteY = notesY + 34 + i * 24;
         const note = document.createElementNS(NS, "g");
         note.innerHTML = `<text class="note-num" x="60" y="${noteY}">${String(file.startHereOrder).padStart(2, "0")}</text><text class="note-text" x="82" y="${noteY}">${file.fullPath} — ${file.startHereReason}</text>`;
         notesLayer.appendChild(note);
-        gsap.set(note, { opacity: 0, y: 6 });
 
-        tl.to(ann, { strokeDashoffset: 0, duration: 0.6 }, "+=0.3")
-          .to(
-            badge,
-            { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(2.2)" },
-            "-=0.15",
-          )
-          .to(note, { opacity: 1, y: 0, duration: 0.35 }, "-=0.1");
+        if (animate) {
+          prepDraw(ann as unknown as SVGGeometryElement);
+          gsap.set(badge, {
+            opacity: 0,
+            scale: 0,
+            transformOrigin: `${badgeX}px ${cy}px`,
+          });
+          gsap.set(note, { opacity: 0, y: 6 });
+          tl.to(ann, { strokeDashoffset: 0, duration: 0.6 }, "+=0.3")
+            .to(
+              badge,
+              { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(2.2)" },
+              "-=0.15",
+            )
+            .to(note, { opacity: 1, y: 0, duration: 0.35 }, "-=0.1");
+        } else {
+          gsap.set(badge, { opacity: 1, scale: 1 });
+          gsap.set(note, { opacity: 1, y: 0 });
+        }
       });
+
+      if (animate) {
+        hasAnimatedIntroRef.current = true;
+      } else {
+        const extraRows = svg.querySelectorAll(".extra-row");
+        if (extraRows.length) {
+          gsap.fromTo(
+            extraRows,
+            { opacity: 0, y: 4 },
+            { opacity: 1, y: 0, duration: 0.25, stagger: 0.02 },
+          );
+        }
+      }
 
       return () => {
         tl.kill();
       };
-    }, [folders, owner, repo, techStack, handleFileClick]);
+    }, [
+      folders,
+      owner,
+      repo,
+      techStack,
+      handleFileClick,
+      toggleRoom,
+      expandedRooms,
+    ]);
 
     return (
       <div>

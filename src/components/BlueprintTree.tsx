@@ -35,6 +35,33 @@ interface SelectedFile {
 
 const NS = "http://www.w3.org/2000/svg";
 const MAX_VISIBLE_FILES = 4;
+const COL_WIDTH = 380;
+const FILE_LABEL_MAX_WIDTH = COL_WIDTH - 40;
+const ROOM_LABEL_MAX_WIDTH = COL_WIDTH - 26;
+
+function fitTextToWidth(
+  el: SVGTextElement,
+  fullText: string,
+  maxWidth: number,
+): void {
+  el.textContent = fullText;
+  if (el.getComputedTextLength() <= maxWidth) return;
+
+  const ellipsis = "…";
+  let lo = 0,
+    hi = fullText.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    el.textContent = ellipsis + fullText.slice(fullText.length - mid);
+    if (el.getComputedTextLength() <= maxWidth) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  el.textContent =
+    lo > 0 ? ellipsis + fullText.slice(fullText.length - lo) : ellipsis;
+}
 
 const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
   function BlueprintTree({ owner, repo, branch, folders, techStack }, ref) {
@@ -149,7 +176,6 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
       }
 
       const colX = [60, 460];
-      const colWidth = 380;
       const startY = 160;
       const colY = [startY, startY];
       const gap = 22;
@@ -168,7 +194,7 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
           folder,
           x: colX[col],
           y: colY[col],
-          width: colWidth,
+          width: COL_WIDTH,
           height,
           visibleFiles,
           overflowCount,
@@ -196,15 +222,19 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
       <text class="heading" id="mainHeading" x="40" y="132">${repo.toUpperCase()} — REPOSITORY ANALYSIS</text>
     `;
 
+      let clipDefs = "";
+
       rooms.forEach((room, ri) => {
-        markup += `<g>
+        clipDefs += `<clipPath id="room-clip-${ri}"><rect x="${room.x - 2}" y="${room.y - 2}" width="${room.width + 4}" height="${room.height + 4}"/></clipPath>`;
+
+        markup += `<g clip-path="url(#room-clip-${ri})">
         <rect class="room-rect" x="${room.x}" y="${room.y}" width="${room.width}" height="${room.height}"/>
-        <text class="room-label" x="${room.x + 16}" y="${room.y + 20}">${room.folder.name}</text>
+        <text class="room-label" id="room-label-${ri}" x="${room.x + 16}" y="${room.y + 20}">${room.folder.name}</text>
         <line class="divider" x1="${room.x}" y1="${room.y + 32}" x2="${room.x + room.width}" y2="${room.y + 32}"/>`;
         room.visibleFiles.forEach((file, fi) => {
           const id = `f-${ri}-${fi}`;
           const isExtra = fi >= MAX_VISIBLE_FILES;
-          markup += `<text class="file-label${isExtra ? " extra-row" : ""}" id="${id}" x="${room.x + 30}" y="${room.y + 54 + fi * 20}">${file.name}</text>`;
+          markup += `<text class="file-label${isExtra ? " extra-row" : ""}" id="${id}" x="${room.x + 30}" y="${room.y + 54 + fi * 20}"></text>`;
         });
         if (room.hasToggle) {
           const toggleId = `toggle-${ri}`;
@@ -235,7 +265,20 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
           <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" result="noise" seed="7"/>
           <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.5"/>
         </filter>
+        ${clipDefs}
       </defs>` + markup;
+
+      rooms.forEach((room, ri) => {
+        const labelEl = svg.querySelector<SVGTextElement>(`#room-label-${ri}`);
+        if (labelEl)
+          fitTextToWidth(labelEl, room.folder.name, ROOM_LABEL_MAX_WIDTH);
+
+        room.visibleFiles.forEach((file, fi) => {
+          const id = `f-${ri}-${fi}`;
+          const el = svg.querySelector<SVGTextElement>(`#${id}`);
+          if (el) fitTextToWidth(el, file.name, FILE_LABEL_MAX_WIDTH);
+        });
+      });
 
       rooms.forEach((room, ri) => {
         room.visibleFiles.forEach((file, fi) => {

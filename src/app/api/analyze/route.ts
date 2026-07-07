@@ -6,10 +6,18 @@ import {
   selectKeyFiles,
   getFileContent,
 } from "@/lib/github";
-import { analyzeRepoOverview } from "@/lib/claude";
-import { GitHubApiError } from "@/lib/types";
+import { analyzeRepoOverview, RepoOverview } from "@/lib/claude";
+import { GitHubApiError, RepoInfo } from "@/lib/types";
+import { getCached, setCached } from "@/lib/cache";
 
 const CORE_FILE_LIMIT = 5;
+const ANALYZE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+interface AnalyzeResult {
+  repoInfo: RepoInfo;
+  files: { path: string; type: string }[];
+  overview: RepoOverview;
+}
 
 export async function POST(request: NextRequest) {
   let body: { repoUrl?: string };
@@ -35,6 +43,12 @@ export async function POST(request: NextRequest) {
       },
       { status: 400 },
     );
+  }
+
+  const cacheKey = `analyze:${parsed.owner}/${parsed.repo}`.toLowerCase();
+  const cached = getCached<AnalyzeResult>(cacheKey);
+  if (cached) {
+    return NextResponse.json({ ...cached, cached: true });
   }
 
   try {
@@ -72,11 +86,15 @@ export async function POST(request: NextRequest) {
       coreFiles,
     );
 
-    return NextResponse.json({
+    const result: AnalyzeResult = {
       repoInfo,
       files: keyFiles.map((f) => ({ path: f.path, type: f.type })),
       overview,
-    });
+    };
+
+    setCached(cacheKey, result, ANALYZE_CACHE_TTL_MS);
+
+    return NextResponse.json({ ...result, cached: false });
   } catch (err) {
     if (err instanceof GitHubApiError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getFileContent } from "@/lib/github";
 import { explainFile } from "@/lib/claude";
 import { GitHubApiError } from "@/lib/types";
+import { getCached, setCached } from "@/lib/cache";
+
+const EXPLAIN_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export async function POST(request: NextRequest) {
   let body: { owner?: string; repo?: string; branch?: string; path?: string };
@@ -22,6 +25,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const cacheKey = `explain:${owner}/${repo}/${path}`.toLowerCase();
+  const cached = getCached<{ explanation: string }>(cacheKey);
+  if (cached) {
+    return NextResponse.json({
+      path,
+      explanation: cached.explanation,
+      cached: true,
+    });
+  }
+
   try {
     const content = await getFileContent(owner, repo, path, branch);
     const explanation = await explainFile(
@@ -29,7 +42,10 @@ export async function POST(request: NextRequest) {
       path,
       content,
     );
-    return NextResponse.json({ path, explanation });
+
+    setCached(cacheKey, { explanation }, EXPLAIN_CACHE_TTL_MS);
+
+    return NextResponse.json({ path, explanation, cached: false });
   } catch (err) {
     if (err instanceof GitHubApiError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

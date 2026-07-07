@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import BlueprintTree, { BlueprintTreeHandle } from "@/components/BlueprintTree";
+import { LightningIcon } from "@phosphor-icons/react";
 import QABox from "@/components/QABox";
 import { buildFolderTree } from "@/lib/repoTree";
 
@@ -14,6 +15,7 @@ interface AnalyzeResponse {
     techStack: string[];
     startHere: { path: string; reason: string }[];
   };
+  cached?: boolean;
 }
 
 interface AnalyzeError {
@@ -146,9 +148,12 @@ function AnalyzeAttempt({
   return (
     <main className="min-h-screen px-6 py-10">
       <div className="max-w-4xl mx-auto">
-        <p className="font-mono text-sm text-[var(--bp-line)] mb-8">
-          {data.overview.summary}
-        </p>
+        {data.cached && (
+          <span className="flex items-center gap-1 font-mono text-[10px] text-[var(--bp-red)] border border-[var(--bp-red)]/40 rounded-sm px-2 py-0.5 whitespace-nowrap">
+            <LightningIcon size={12} weight="fill" />
+            CACHED
+          </span>
+        )}
         <BlueprintTree
           ref={treeRef}
           owner={data.repoInfo.owner}

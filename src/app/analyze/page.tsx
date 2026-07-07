@@ -2,11 +2,12 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { LightningIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
 import BlueprintTree, { BlueprintTreeHandle } from "@/components/BlueprintTree";
-import { LightningIcon } from "@phosphor-icons/react";
 import QABox from "@/components/QABox";
 import { buildFolderTree } from "@/lib/repoTree";
 import { addRecentRepo } from "@/lib/recentRepos";
+import { buildMarkdown, downloadMarkdown } from "@/lib/exportMarkdown";
 
 interface AnalyzeResponse {
   repoInfo: { owner: string; repo: string; defaultBranch: string };
@@ -45,7 +46,7 @@ function LoadingIndicator({ repoUrl }: { repoUrl: string }) {
         />
       </svg>
       <p className="font-mono text-[var(--bp-steel)] text-sm">
-        reading {repoUrl}…
+        Reading {repoUrl}…
       </p>
     </div>
   );
@@ -149,15 +150,35 @@ function AnalyzeAttempt({
   const folders = buildFolderTree(data.files, data.overview.startHere);
   const allPaths = data.files.map((f) => f.path);
 
+  function handleExport() {
+    if (!data) return;
+    const markdown = buildMarkdown(data);
+    downloadMarkdown(`${data.repoInfo.repo}-analysis.md`, markdown);
+  }
+
   return (
     <main className="min-h-screen px-6 py-10">
       <div className="max-w-4xl mx-auto">
-        {data.cached && (
-          <span className="flex items-center gap-1 font-mono text-[10px] text-[var(--bp-red)] border border-[var(--bp-red)]/40 rounded-sm px-2 py-0.5 whitespace-nowrap">
-            <LightningIcon size={12} weight="fill" />
-            CACHED
-          </span>
-        )}
+        <div className="flex items-start justify-between gap-4 mb-8">
+          <div className="flex items-center gap-2">
+            <p className="font-mono text-sm text-[var(--bp-line)]">
+              {data.overview.summary}
+            </p>
+            {data.cached && (
+              <span className="flex items-center gap-1 font-mono text-[10px] text-[var(--bp-red)] border border-[var(--bp-red)]/40 rounded-sm px-2 py-0.5 whitespace-nowrap">
+                <LightningIcon size={12} weight="fill" />
+                CACHED
+              </span>
+            )}
+          </div>
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-1.5 font-mono text-[11px] text-[var(--bp-steel)] hover:text-[var(--bp-cream)] border border-[var(--bp-steel)]/40 hover:border-[var(--bp-cream)]/60 rounded-sm px-3 py-1.5 transition-colors whitespace-nowrap"
+          >
+            <DownloadSimpleIcon size={14} />
+            EXPORT .MD
+          </button>
+        </div>
         <BlueprintTree
           ref={treeRef}
           owner={data.repoInfo.owner}

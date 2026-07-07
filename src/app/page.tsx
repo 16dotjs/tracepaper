@@ -70,7 +70,7 @@ export default function LandingPage() {
         </div>
 
         <h1 className="font-mono text-2xl font-bold tracking-wide mb-2">
-          TRACEPAPER
+          tracepaper
         </h1>
         <p className="text-[var(--bp-steel)] text-sm mb-8">
           Paste a public GitHub repo. Get a plain-English breakdown of what it

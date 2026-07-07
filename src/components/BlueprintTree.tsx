@@ -9,6 +9,8 @@ import {
   useState,
 } from "react";
 import { gsap } from "gsap";
+import { CodeIcon } from "@phosphor-icons/react";
+import CodePreview from "./CodePreview";
 import type { TreeFolder } from "@/lib/repoTree";
 
 interface BlueprintTreeProps {
@@ -23,6 +25,14 @@ export interface BlueprintTreeHandle {
   spotlightPath: (path: string) => void;
 }
 
+interface SelectedFile {
+  path: string;
+  explanation: string;
+  content?: string;
+  truncated?: boolean;
+  loading: boolean;
+}
+
 const NS = "http://www.w3.org/2000/svg";
 const MAX_VISIBLE_FILES = 4;
 
@@ -35,11 +45,8 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
         { el: SVGGraphicsElement; file: TreeFolder["files"][number] }
       >
     >({});
-    const [selected, setSelected] = useState<{
-      path: string;
-      explanation: string;
-      loading: boolean;
-    } | null>(null);
+    const [selected, setSelected] = useState<SelectedFile | null>(null);
+    const [showCode, setShowCode] = useState(false);
 
     const handleFileClick = useCallback(
       async (id: string) => {
@@ -76,6 +83,7 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
 
         el.scrollIntoView({ behavior: "smooth", block: "center" });
 
+        setShowCode(false);
         setSelected({ path: file.fullPath, explanation: "", loading: true });
 
         try {
@@ -88,6 +96,8 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
           setSelected({
             path: file.fullPath,
             explanation: res.ok ? data.explanation : `Error: ${data.error}`,
+            content: res.ok ? data.content : undefined,
+            truncated: res.ok ? data.truncated : undefined,
             loading: false,
           });
         } catch {
@@ -329,12 +339,30 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
           <p className="text-[var(--bp-cream)] font-bold mb-1">
             {selected?.path ?? "—"}
           </p>
-          <p className="text-[var(--bp-line)] text-xs">
+          <p className="text-[var(--bp-line)] text-xs mb-3">
             {selected?.loading
               ? "Claude is reading this file…"
               : (selected?.explanation ??
                 "Click any file above to see Claude's explanation of it.")}
           </p>
+          {selected?.content && !selected.loading && (
+            <div>
+              <button
+                onClick={() => setShowCode((v) => !v)}
+                className="flex items-center gap-1 text-[10px] font-mono text-[var(--bp-steel)] hover:text-[var(--bp-red)] transition-colors mb-2"
+              >
+                <CodeIcon size={12} weight={showCode ? "fill" : "regular"} />
+                {showCode ? "HIDE CODE" : "VIEW CODE"}
+              </button>
+              {showCode && (
+                <CodePreview
+                  code={selected.content}
+                  path={selected.path}
+                  truncated={selected.truncated}
+                />
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

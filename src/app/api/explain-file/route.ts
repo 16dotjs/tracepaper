@@ -5,6 +5,13 @@ import { GitHubApiError } from "@/lib/types";
 import { getCached, setCached } from "@/lib/cache";
 
 const EXPLAIN_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const PREVIEW_CHAR_LIMIT = 4000;
+
+interface CachedExplain {
+  explanation: string;
+  content: string;
+  truncated: boolean;
+}
 
 export async function POST(request: NextRequest) {
   let body: { owner?: string; repo?: string; branch?: string; path?: string };
@@ -26,13 +33,9 @@ export async function POST(request: NextRequest) {
   }
 
   const cacheKey = `explain:${owner}/${repo}/${path}`.toLowerCase();
-  const cached = getCached<{ explanation: string }>(cacheKey);
+  const cached = getCached<CachedExplain>(cacheKey);
   if (cached) {
-    return NextResponse.json({
-      path,
-      explanation: cached.explanation,
-      cached: true,
-    });
+    return NextResponse.json({ path, ...cached, cached: true });
   }
 
   try {
@@ -43,9 +46,22 @@ export async function POST(request: NextRequest) {
       content,
     );
 
-    setCached(cacheKey, { explanation }, EXPLAIN_CACHE_TTL_MS);
+    const truncated = content.length > PREVIEW_CHAR_LIMIT;
+    const preview = content.slice(0, PREVIEW_CHAR_LIMIT);
 
-    return NextResponse.json({ path, explanation, cached: false });
+    setCached(
+      cacheKey,
+      { explanation, content: preview, truncated },
+      EXPLAIN_CACHE_TTL_MS,
+    );
+
+    return NextResponse.json({
+      path,
+      explanation,
+      content: preview,
+      truncated,
+      cached: false,
+    });
   } catch (err) {
     if (err instanceof GitHubApiError) {
       return NextResponse.json({ error: err.message }, { status: err.status });

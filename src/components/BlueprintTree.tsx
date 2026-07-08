@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import { gsap } from "gsap";
-import { CodeIcon } from "@phosphor-icons/react";
+import { CodeIcon, MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
 import CodePreview from "./CodePreview";
 import type { TreeFolder } from "@/lib/repoTree";
 
@@ -76,6 +76,20 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
     const [selected, setSelected] = useState<SelectedFile | null>(null);
     const [showCode, setShowCode] = useState(false);
     const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
+    const [searchQuery, setSearchQuery] = useState("");
+
+    const query = searchQuery.trim().toLowerCase();
+    const isSearching = query.length > 0;
+    const totalMatches = isSearching
+      ? folders.reduce(
+          (sum, f) =>
+            sum +
+            f.files.filter((file) =>
+              file.fullPath.toLowerCase().includes(query),
+            ).length,
+          0,
+        )
+      : 0;
 
     const handleFileClick = useCallback(
       async (id: string) => {
@@ -181,7 +195,11 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
       const gap = 22;
 
       const rooms = folders.map((folder) => {
-        const isExpanded = expandedRooms.has(folder.name);
+        const roomHasMatch =
+          isSearching &&
+          folder.files.some((f) => f.fullPath.toLowerCase().includes(query));
+        const manuallyExpanded = expandedRooms.has(folder.name);
+        const isExpanded = manuallyExpanded || roomHasMatch;
         const hasToggle = folder.files.length > MAX_VISIBLE_FILES;
         const visibleFiles = isExpanded
           ? folder.files
@@ -200,6 +218,7 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
           overflowCount,
           hasToggle,
           isExpanded,
+          roomDim: isSearching && !roomHasMatch,
         };
         colY[col] += height + gap;
         return room;
@@ -227,14 +246,25 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
       rooms.forEach((room, ri) => {
         clipDefs += `<clipPath id="room-clip-${ri}"><rect x="${room.x - 2}" y="${room.y - 2}" width="${room.width + 4}" height="${room.height + 4}"/></clipPath>`;
 
-        markup += `<g clip-path="url(#room-clip-${ri})">
+        markup += `<g clip-path="url(#room-clip-${ri})"${room.roomDim ? ' class="search-dim"' : ""}>
         <rect class="room-rect" x="${room.x}" y="${room.y}" width="${room.width}" height="${room.height}"/>
-        <text class="room-label" id="room-label-${ri}" x="${room.x + 16}" y="${room.y + 20}">${room.folder.name}</text>
+        <text class="room-label" id="room-label-${ri}" x="${room.x + 16}" y="${room.y + 20}"></text>
         <line class="divider" x1="${room.x}" y1="${room.y + 32}" x2="${room.x + room.width}" y2="${room.y + 32}"/>`;
         room.visibleFiles.forEach((file, fi) => {
           const id = `f-${ri}-${fi}`;
           const isExtra = fi >= MAX_VISIBLE_FILES;
-          markup += `<text class="file-label${isExtra ? " extra-row" : ""}" id="${id}" x="${room.x + 30}" y="${room.y + 54 + fi * 20}"></text>`;
+          const isMatch =
+            isSearching && file.fullPath.toLowerCase().includes(query);
+          const isDimmed = isSearching && !isMatch;
+          const cls = [
+            "file-label",
+            isExtra && "extra-row",
+            isMatch && "search-match",
+            isDimmed && "search-dim",
+          ]
+            .filter(Boolean)
+            .join(" ");
+          markup += `<text class="${cls}" id="${id}" x="${room.x + 30}" y="${room.y + 54 + fi * 20}"></text>`;
         });
         if (room.hasToggle) {
           const toggleId = `toggle-${ri}`;
@@ -441,15 +471,47 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
       handleFileClick,
       toggleRoom,
       expandedRooms,
+      isSearching,
+      query,
     ]);
 
     return (
       <div>
+        <div className="mb-3 relative">
+          <MagnifyingGlassIcon
+            size={14}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--bp-steel)]"
+          />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filter files…"
+            className="w-full bg-transparent border border-[var(--bp-steel)]/40 rounded-sm pl-8 pr-8 py-2
+                     font-mono text-xs placeholder:text-[var(--bp-steel)]/50
+                     focus:outline-none focus:border-[var(--bp-red)] transition-colors"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--bp-steel)] hover:text-[var(--bp-red)] transition-colors"
+            >
+              <XIcon size={12} />
+            </button>
+          )}
+        </div>
+        {isSearching && totalMatches === 0 && (
+          <p className="text-[10px] font-mono text-[var(--bp-steel)] mb-2">
+            No files match &quot;{searchQuery}&quot;
+          </p>
+        )}
+
         <svg
           ref={svgRef}
           viewBox="0 0 900 700"
           className="bp-svg w-full h-auto"
         />
+
         <div className="mt-4 border border-[var(--bp-steel)]/40 rounded-sm p-4 font-mono text-sm">
           <p className="text-[var(--bp-steel)] text-xs tracking-wide mb-1">
             SELECTED FILE

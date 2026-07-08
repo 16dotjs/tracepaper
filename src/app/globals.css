@@ -99,6 +99,13 @@ body {
   stroke-width: 2.2;
   stroke-linecap: round;
 }
+.bp-svg .search-match {
+  fill: var(--bp-cream);
+  font-weight: 700;
+}
+.bp-svg .search-dim {
+  opacity: 0.25;
+}
 .bp-svg .spotlight-line {
   fill: none;
   stroke: var(--bp-red);

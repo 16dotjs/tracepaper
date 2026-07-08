@@ -10,9 +10,16 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tracepaper — understand any repo in minutes",
+  title: "tracepaer — understand any repo in minutes",
   description:
-    "AI-powered GitHub repo onboarding. Paste a repo, get a plain-English architecture breakdown.",
+    "AI-powered gitHub repo onboarding. paste a repo, get a plain-english architecture breakdown.",
+  openGraph: {
+    type: "website",
+    siteName: "tracepaper",
+  },
+  twitter: {
+    card: "summary_large_image",
+  },
 };
 
 export default function RootLayout({

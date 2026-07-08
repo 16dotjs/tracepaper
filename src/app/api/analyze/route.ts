@@ -5,6 +5,7 @@ import {
   getRepoTree,
   selectKeyFiles,
   getFileContent,
+  getRepoStats,
 } from "@/lib/github";
 import { analyzeRepoOverview, RepoOverview } from "@/lib/claude";
 import { GitHubApiError, RepoInfo } from "@/lib/types";
@@ -17,6 +18,7 @@ interface AnalyzeResult {
   repoInfo: RepoInfo;
   files: { path: string; type: string }[];
   overview: RepoOverview;
+  stats: { totalFiles: number; totalFolders: number };
 }
 
 export async function POST(request: NextRequest) {
@@ -59,6 +61,7 @@ export async function POST(request: NextRequest) {
       repoInfo.defaultBranch,
     );
     const keyFiles = selectKeyFiles(fullTree);
+    const stats = getRepoStats(fullTree);
 
     const coreFilePaths = keyFiles.slice(0, CORE_FILE_LIMIT).map((f) => f.path);
     const coreFileResults = await Promise.allSettled(
@@ -90,6 +93,7 @@ export async function POST(request: NextRequest) {
       repoInfo,
       files: keyFiles.map((f) => ({ path: f.path, type: f.type })),
       overview,
+      stats,
     };
 
     setCached(cacheKey, result, ANALYZE_CACHE_TTL_MS);

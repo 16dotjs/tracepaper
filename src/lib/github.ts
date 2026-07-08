@@ -182,3 +182,19 @@ export function selectKeyFiles(
   scored.sort((a, b) => a.score - b.score);
   return scored.slice(0, maxFiles).map((s) => s.item);
 }
+
+/** Real counts across the whole repo (not the capped subset shown in the tree),
+ *  excluding noise directories so the number reflects the actual codebase, not build output. */
+export function getRepoStats(tree: GitTreeItem[]): {
+  totalFiles: number;
+  totalFolders: number;
+} {
+  const relevant = tree.filter((item) => {
+    const segments = item.path.split("/");
+    return !segments.some((s) => IGNORED_DIR_SEGMENTS.has(s));
+  });
+  return {
+    totalFiles: relevant.filter((i) => i.type === "blob").length,
+    totalFolders: relevant.filter((i) => i.type === "tree").length,
+  };
+}

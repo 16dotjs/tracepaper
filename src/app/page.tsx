@@ -23,8 +23,6 @@ const TRY_REPOS = [
   "tanstack/query",
 ];
 
-// Fixed, deliberate mapping — each chip highlights a consistent branch of the decorative
-// diagram. Not a claim about that repo's real structure; just predictable interactive polish.
 const CHIP_HIGHLIGHTS: Record<string, string[]> = {
   "facebook/react": ["root", "folderA", "fileA1"],
   "vercel/swr": ["root", "folderA", "fileA2"],
@@ -122,6 +120,19 @@ export default function LandingPage() {
     setError(null);
     setSubmitting(true);
     pendingRepoRef.current = trimmed;
+
+    // Fire the real analysis request now, in parallel with the expand animation, so the
+    // server-side cache is already warm by the time /analyze mounts and makes its own request.
+    // Deliberately not awaited — this is a background warm-up, not a blocking dependency.
+    // If it hasn't finished by navigation time, /analyze's own fetch just runs normally and
+    // any real error surfaces through its own error UI, not silently here.
+    fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: trimmed }),
+    }).catch(() => {
+      // Swallow — see note above.
+    });
 
     if (formColumnRef.current) {
       gsap.to(formColumnRef.current, {

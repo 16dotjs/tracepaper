@@ -2,7 +2,12 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { LightningIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
+import {
+  LightningIcon,
+  DownloadSimpleIcon,
+  FolderIcon,
+  FileIcon,
+} from "@phosphor-icons/react";
 import BlueprintTree, { BlueprintTreeHandle } from "@/components/BlueprintTree";
 import QABox from "@/components/QABox";
 import { buildFolderTree } from "@/lib/repoTree";
@@ -17,6 +22,7 @@ interface AnalyzeResponse {
     techStack: string[];
     startHere: { path: string; reason: string }[];
   };
+  stats?: { totalFiles: number; totalFolders: number };
   cached?: boolean;
 }
 
@@ -159,7 +165,7 @@ function AnalyzeAttempt({
   return (
     <main className="min-h-screen px-6 py-10">
       <div className="max-w-4xl mx-auto">
-        <div className="flex items-start justify-between gap-4 mb-8">
+        <div className="flex items-start justify-between gap-4 mb-3">
           <div className="flex items-center gap-2">
             <p className="font-mono text-sm text-[var(--bp-line)]">
               {data.overview.summary}
@@ -179,6 +185,20 @@ function AnalyzeAttempt({
             EXPORT .MD
           </button>
         </div>
+
+        {data.stats && (
+          <div className="flex items-center gap-2 mb-8">
+            <span className="flex items-center gap-1.5 font-mono text-[11px] text-[var(--bp-line)] border border-[var(--bp-steel)]/30 rounded-full px-3 py-1">
+              <FolderIcon size={12} />
+              {data.stats.totalFolders} folders
+            </span>
+            <span className="flex items-center gap-1.5 font-mono text-[11px] text-[var(--bp-line)] border border-[var(--bp-steel)]/30 rounded-full px-3 py-1">
+              <FileIcon size={12} />
+              {data.stats.totalFiles} files
+            </span>
+          </div>
+        )}
+
         <BlueprintTree
           ref={treeRef}
           owner={data.repoInfo.owner}

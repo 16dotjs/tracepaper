@@ -8,22 +8,13 @@
   --bp-red: #d4552e;
   --bp-cream: #f5f1e8;
 
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --font-sans: "Inter", ui-sans-serif, sans-serif;
+  --font-sans: var(--font-geist-sans), ui-sans-serif, sans-serif;
+  /* --font-mono is already set directly by IBM Plex Mono's next/font config above */
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
 }
 
 body {

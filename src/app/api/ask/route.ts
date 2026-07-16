@@ -2,8 +2,31 @@ import { NextRequest, NextResponse } from "next/server";
 import { getFileContent } from "@/lib/github";
 import { answerRepoQuestion } from "@/lib/claude";
 import { GitHubApiError } from "@/lib/types";
+import { checkRateLimit, getClientKey } from "@/lib/rateLimit";
+
+const RATE_LIMIT = 8;
+const RATE_WINDOW_MS = 60 * 1000;
+const MAX_QUESTION_LENGTH = 300;
+const MAX_PATHS = 500;
 
 export async function POST(request: NextRequest) {
+  const rl = checkRateLimit(
+    `ask:${getClientKey(request)}`,
+    RATE_LIMIT,
+    RATE_WINDOW_MS,
+  );
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment and try again." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)),
+        },
+      },
+    );
+  }
+
   let body: {
     owner?: string;
     repo?: string;
@@ -32,6 +55,17 @@ export async function POST(request: NextRequest) {
       { error: "Ask a real question — that one's too short to work with." },
       { status: 400 },
     );
+  }
+  if (question.length > MAX_QUESTION_LENGTH) {
+    return NextResponse.json(
+      {
+        error: `Question is too long (max ${MAX_QUESTION_LENGTH} characters).`,
+      },
+      { status: 400 },
+    );
+  }
+  if (!Array.isArray(allPaths) || allPaths.length > MAX_PATHS) {
+    return NextResponse.json({ error: "Invalid file list." }, { status: 400 });
   }
 
   try {

@@ -230,12 +230,15 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
         .filter((f) => f.startHereOrder)
         .sort((a, b) => a.startHereOrder! - b.startHereOrder!);
 
+      // NOTE: techStack is intentionally NOT interpolated into this markup string.
+      // It's Claude-generated content — it gets set via .textContent after render instead,
+      // same pattern as room/file labels. See #metaStack below.
       let markup = `
       <rect id="titleBlock" x="40" y="24" width="260" height="86" rx="2" fill="none" stroke="var(--bp-line)" stroke-width="1.4"/>
       <text class="meta-label" x="52" y="44">PROJECT</text>
       <text class="meta-value" x="52" y="58">${owner}/${repo}</text>
       <text class="meta-label" x="52" y="74">STACK</text>
-      <text class="meta-value" x="52" y="88">${techStack.slice(0, 3).join(" · ") || "—"}</text>
+      <text class="meta-value" id="metaStack" x="52" y="88"></text>
       <circle class="pulse-dot" id="pulseDot" cx="270" cy="40" r="3.5" opacity="0"/>
       <text class="meta-label" x="278" y="43">ANALYZED</text>
       <text class="heading" id="mainHeading" x="40" y="132">${repo.toUpperCase()} — REPOSITORY ANALYSIS</text>
@@ -297,6 +300,13 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
         </filter>
         ${clipDefs}
       </defs>` + markup;
+
+      // Set all Claude-derived and repo-derived text via .textContent (auto-escaped by the
+      // browser) rather than string interpolation into innerHTML — this is the fix for the
+      // stored-XSS finding from the code review.
+      const metaStackEl = svg.querySelector<SVGTextElement>("#metaStack");
+      if (metaStackEl)
+        metaStackEl.textContent = techStack.slice(0, 3).join(" · ") || "—";
 
       rooms.forEach((room, ri) => {
         const labelEl = svg.querySelector<SVGTextElement>(`#room-label-${ri}`);
@@ -416,14 +426,39 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
         ann.setAttribute("ry", String(ry));
         annotationLayer.appendChild(ann);
 
+        // Badge and note built via createElementNS + .textContent, not innerHTML — file.fullPath
+        // and file.startHereReason are, respectively, real repo path data and Claude-generated
+        // text derived from that repo's content. Neither is trustworthy enough for innerHTML.
         const badgeX = cx + rx + 14;
         const badge = document.createElementNS(NS, "g");
-        badge.innerHTML = `<circle class="badge-circle" cx="${badgeX}" cy="${cy}" r="11"/><text class="badge-text" x="${badgeX}" y="${cy + 4}">${file.startHereOrder}</text>`;
+        const badgeCircle = document.createElementNS(NS, "circle");
+        badgeCircle.setAttribute("class", "badge-circle");
+        badgeCircle.setAttribute("cx", String(badgeX));
+        badgeCircle.setAttribute("cy", String(cy));
+        badgeCircle.setAttribute("r", "11");
+        badge.appendChild(badgeCircle);
+        const badgeText = document.createElementNS(NS, "text");
+        badgeText.setAttribute("class", "badge-text");
+        badgeText.setAttribute("x", String(badgeX));
+        badgeText.setAttribute("y", String(cy + 4));
+        badgeText.textContent = String(file.startHereOrder);
+        badge.appendChild(badgeText);
         annotationLayer.appendChild(badge);
 
         const noteY = notesY + 34 + i * 24;
         const note = document.createElementNS(NS, "g");
-        note.innerHTML = `<text class="note-num" x="60" y="${noteY}">${String(file.startHereOrder).padStart(2, "0")}</text><text class="note-text" x="82" y="${noteY}">${file.fullPath} — ${file.startHereReason}</text>`;
+        const noteNum = document.createElementNS(NS, "text");
+        noteNum.setAttribute("class", "note-num");
+        noteNum.setAttribute("x", "60");
+        noteNum.setAttribute("y", String(noteY));
+        noteNum.textContent = String(file.startHereOrder).padStart(2, "0");
+        note.appendChild(noteNum);
+        const noteText = document.createElementNS(NS, "text");
+        noteText.setAttribute("class", "note-text");
+        noteText.setAttribute("x", "82");
+        noteText.setAttribute("y", String(noteY));
+        noteText.textContent = `${file.fullPath} — ${file.startHereReason}`;
+        note.appendChild(noteText);
         notesLayer.appendChild(note);
 
         if (animate) {

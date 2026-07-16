@@ -10,9 +10,12 @@ import {
 import { analyzeRepoOverview, RepoOverview } from "@/lib/claude";
 import { GitHubApiError, RepoInfo } from "@/lib/types";
 import { getCached, setCached } from "@/lib/cache";
+import { checkRateLimit, getClientKey } from "@/lib/rateLimit";
 
 const CORE_FILE_LIMIT = 5;
 const ANALYZE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const RATE_LIMIT = 8;
+const RATE_WINDOW_MS = 60 * 1000;
 
 interface AnalyzeResult {
   repoInfo: RepoInfo;
@@ -22,6 +25,23 @@ interface AnalyzeResult {
 }
 
 export async function POST(request: NextRequest) {
+  const rl = checkRateLimit(
+    `analyze:${getClientKey(request)}`,
+    RATE_LIMIT,
+    RATE_WINDOW_MS,
+  );
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment and try again." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)),
+        },
+      },
+    );
+  }
+
   let body: { repoUrl?: string };
   try {
     body = await request.json();

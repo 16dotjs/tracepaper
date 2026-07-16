@@ -10,6 +10,8 @@ import {
   LinkSimpleIcon,
   CheckIcon,
 } from "@phosphor-icons/react";
+import { TreeStructureIcon } from "@phosphor-icons/react";
+import DependencyGraph from "./DependencyGraph";
 import BlueprintTree, { BlueprintTreeHandle } from "@/components/BlueprintTree";
 import QABox from "@/components/QABox";
 import { buildFolderTree } from "@/lib/repoTree";
@@ -112,6 +114,7 @@ function AnalyzeAttempt({
   const [data, setData] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState<AnalyzeError | null>(null);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<"folders" | "graph">("folders");
 
   useEffect(() => {
     let cancelled = false;
@@ -244,15 +247,48 @@ function AnalyzeAttempt({
             </span>
           </div>
         )}
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => setView("folders")}
+            className={`flex items-center gap-1.5 font-mono text-[11px] rounded-sm px-3 py-1.5 border transition-colors ${
+              view === "folders"
+                ? "border-[var(--bp-red)] text-[var(--bp-cream)]"
+                : "border-[var(--bp-steel)]/30 text-[var(--bp-steel)] hover:text-[var(--bp-cream)]"
+            }`}
+          >
+            <FolderIcon size={13} />
+            FOLDER VIEW
+          </button>
+          <button
+            onClick={() => setView("graph")}
+            className={`flex items-center gap-1.5 font-mono text-[11px] rounded-sm px-3 py-1.5 border transition-colors ${
+              view === "graph"
+                ? "border-[var(--bp-red)] text-[var(--bp-cream)]"
+                : "border-[var(--bp-steel)]/30 text-[var(--bp-steel)] hover:text-[var(--bp-cream)]"
+            }`}
+          >
+            <TreeStructureIcon size={13} />
+            DEPENDENCY GRAPH
+          </button>
+        </div>
 
-        <BlueprintTree
-          ref={treeRef}
-          owner={data.repoInfo.owner}
-          repo={data.repoInfo.repo}
-          branch={data.repoInfo.defaultBranch}
-          folders={folders}
-          techStack={data.overview.techStack}
-        />
+        {view === "folders" ? (
+          <BlueprintTree
+            ref={treeRef}
+            owner={data.repoInfo.owner}
+            repo={data.repoInfo.repo}
+            branch={data.repoInfo.defaultBranch}
+            folders={folders}
+            techStack={data.overview.techStack}
+          />
+        ) : (
+          <DependencyGraph
+            owner={data.repoInfo.owner}
+            repo={data.repoInfo.repo}
+            branch={data.repoInfo.defaultBranch}
+            paths={allPaths}
+          />
+        )}
         <QABox
           owner={data.repoInfo.owner}
           repo={data.repoInfo.repo}

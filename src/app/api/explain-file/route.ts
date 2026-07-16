@@ -3,9 +3,12 @@ import { getFileContent } from "@/lib/github";
 import { explainFile } from "@/lib/claude";
 import { GitHubApiError } from "@/lib/types";
 import { getCached, setCached } from "@/lib/cache";
+import { checkRateLimit, getClientKey } from "@/lib/rateLimit";
 
 const EXPLAIN_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const PREVIEW_CHAR_LIMIT = 4000;
+const RATE_LIMIT = 20;
+const RATE_WINDOW_MS = 60 * 1000;
 
 interface CachedExplain {
   explanation: string;
@@ -14,6 +17,23 @@ interface CachedExplain {
 }
 
 export async function POST(request: NextRequest) {
+  const rl = checkRateLimit(
+    `explain:${getClientKey(request)}`,
+    RATE_LIMIT,
+    RATE_WINDOW_MS,
+  );
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please wait a moment and try again." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil((rl.resetAt - Date.now()) / 1000)),
+        },
+      },
+    );
+  }
+
   let body: { owner?: string; repo?: string; branch?: string; path?: string };
   try {
     body = await request.json();

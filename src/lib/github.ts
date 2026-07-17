@@ -1,18 +1,24 @@
 import { RepoInfo, GitTreeItem, GitHubApiError } from "./types";
 
 const GITHUB_API = "https://api.github.com";
+const MAX_FETCHABLE_SIZE = 1_000_000;
 
 function githubHeaders(): HeadersInit {
   const headers: HeadersInit = { Accept: "application/vnd.github+json" };
-  // Optional: add a personal access token to .env.local as GITHUB_TOKEN
-  // to bump the rate limit from 60/hr to 5,000/hr while developing.
   if (process.env.GITHUB_TOKEN) {
     headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
   }
   return headers;
 }
 
-/** Parses a GitHub URL (or "owner/repo" shorthand) into its parts. */
+function encodeSegment(segment: string): string {
+  return encodeURIComponent(segment);
+}
+
+function encodeMultiSegmentPath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
 export function parseRepoUrl(
   input: string,
 ): { owner: string; repo: string } | null {
@@ -30,14 +36,14 @@ export function parseRepoUrl(
   return null;
 }
 
-/** Fetches repo metadata, including its default branch (main/master/etc). */
 export async function getRepoInfo(
   owner: string,
   repo: string,
 ): Promise<RepoInfo> {
-  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, {
-    headers: githubHeaders(),
-  });
+  const res = await fetch(
+    `${GITHUB_API}/repos/${encodeSegment(owner)}/${encodeSegment(repo)}`,
+    { headers: githubHeaders() },
+  );
 
   if (res.status === 404)
     throw new GitHubApiError(
@@ -56,14 +62,13 @@ export async function getRepoInfo(
   return { owner, repo, defaultBranch: data.default_branch };
 }
 
-/** Fetches the full file tree for a repo (recursive). */
 export async function getRepoTree(
   owner: string,
   repo: string,
   branch: string,
 ): Promise<GitTreeItem[]> {
   const res = await fetch(
-    `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`,
+    `${GITHUB_API}/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/git/trees/${encodeMultiSegmentPath(branch)}?recursive=1`,
     { headers: githubHeaders() },
   );
 
@@ -83,7 +88,6 @@ export async function getRepoTree(
   return data.tree as GitTreeItem[];
 }
 
-/** Fetches a single file's raw text content. */
 export async function getFileContent(
   owner: string,
   repo: string,
@@ -91,7 +95,7 @@ export async function getFileContent(
   branch: string,
 ): Promise<string> {
   const res = await fetch(
-    `${GITHUB_API}/repos/${owner}/${repo}/contents/${path}?ref=${branch}`,
+    `${GITHUB_API}/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/contents/${encodeMultiSegmentPath(path)}?ref=${encodeMultiSegmentPath(branch)}`,
     { headers: githubHeaders() },
   );
 
@@ -99,8 +103,18 @@ export async function getFileContent(
     throw new GitHubApiError(`Failed to fetch file: ${path}`, res.status);
 
   const data = await res.json();
-  if (data.encoding !== "base64")
-    throw new Error(`Unexpected encoding for ${path}: ${data.encoding}`);
+
+  if (data.encoding !== "base64" || typeof data.content !== "string") {
+    if (typeof data.size === "number" && data.size > MAX_FETCHABLE_SIZE) {
+      throw new GitHubApiError(
+        `File too large to preview (${(data.size / 1_000_000).toFixed(1)}MB — over GitHub's 1MB inline-content limit).`,
+        413,
+      );
+    }
+    throw new Error(
+      `Unexpected response for ${path}: no base64 content available.`,
+    );
+  }
 
   return Buffer.from(data.content, "base64").toString("utf-8");
 }
@@ -161,7 +175,6 @@ function isIgnoredPath(path: string): boolean {
   return IGNORED_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
-/** Picks a manageable, high-signal subset of files to send to Claude for analysis. */
 export function selectKeyFiles(
   tree: GitTreeItem[],
   maxFiles = 40,
@@ -174,8 +187,10 @@ export function selectKeyFiles(
     const depth = item.path.split("/").length;
     const filename = item.path.split("/").pop()!.toLowerCase();
     const isPriority = PRIORITY_FILENAMES.includes(filename);
-    // Lower score = higher priority: README/config files first, then shallower paths.
-    const score = (isPriority ? -1000 : 0) + depth * 10;
+    const isOversized =
+      typeof item.size === "number" && item.size > MAX_FETCHABLE_SIZE;
+    const score =
+      (isPriority ? -1000 : 0) + depth * 10 + (isOversized ? 100_000 : 0);
     return { item, score };
   });
 
@@ -183,8 +198,6 @@ export function selectKeyFiles(
   return scored.slice(0, maxFiles).map((s) => s.item);
 }
 
-/** Real counts across the whole repo (not the capped subset shown in the tree),
- *  excluding noise directories so the number reflects the actual codebase, not build output. */
 export function getRepoStats(tree: GitTreeItem[]): {
   totalFiles: number;
   totalFolders: number;

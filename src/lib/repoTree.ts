@@ -1,4 +1,5 @@
 import type { StartHereFile } from "./claude";
+import { getFileName } from "./pathUtils";
 
 export interface TreeFile {
   name: string;
@@ -27,7 +28,7 @@ export function buildFolderTree(
       const segments = f.path.split("/");
       const folderName = segments.length > 1 ? `${segments[0]}/` : "(root)";
       const displayName =
-        segments.length > 1 ? segments.slice(1).join("/") : segments[0];
+        segments.length > 1 ? segments.slice(1).join("/") : getFileName(f.path);
       const sh = startHereMap.get(f.path);
 
       const file: TreeFile = {

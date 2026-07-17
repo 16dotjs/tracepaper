@@ -1,3 +1,5 @@
+import { getFileName } from "./pathUtils";
+
 interface ExportData {
   repoInfo: { owner: string; repo: string };
   overview: {
@@ -8,6 +10,10 @@ interface ExportData {
   files: { path: string; type: string }[];
 }
 
+/** Groups files by their true immediate parent directory (full nesting preserved) —
+ * intentionally different from repoTree.ts's buildFolderTree, which flattens everything
+ * below the top-level folder for the visual tree's layout constraints. An export document
+ * has no layout constraint, so it reflects the real folder structure exactly. */
 function groupFilesByFolder(
   files: { path: string; type: string }[],
 ): Map<string, string[]> {
@@ -19,7 +25,7 @@ function groupFilesByFolder(
       const folder =
         segments.length > 1 ? segments.slice(0, -1).join("/") + "/" : "(root)";
       if (!map.has(folder)) map.set(folder, []);
-      map.get(folder)!.push(segments[segments.length - 1]);
+      map.get(folder)!.push(getFileName(f.path));
     });
   return map;
 }

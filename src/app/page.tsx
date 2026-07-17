@@ -121,18 +121,11 @@ export default function LandingPage() {
     setSubmitting(true);
     pendingRepoRef.current = trimmed;
 
-    // Fire the real analysis request now, in parallel with the expand animation, so the
-    // server-side cache is already warm by the time /analyze mounts and makes its own request.
-    // Deliberately not awaited — this is a background warm-up, not a blocking dependency.
-    // If it hasn't finished by navigation time, /analyze's own fetch just runs normally and
-    // any real error surfaces through its own error UI, not silently here.
     fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ repoUrl: trimmed }),
-    }).catch(() => {
-      // Swallow — see note above.
-    });
+    }).catch(() => {});
 
     if (formColumnRef.current) {
       gsap.to(formColumnRef.current, {
@@ -152,8 +145,7 @@ export default function LandingPage() {
     router.push(`/analyze?repo=${encodeURIComponent(`${r.owner}/${r.repo}`)}`);
   }
 
-  function handleRemoveRecent(e: React.MouseEvent, r: RecentRepo) {
-    e.stopPropagation();
+  function handleRemoveRecent(r: RecentRepo) {
     removeRecentRepo(r.owner, r.repo);
     setRecentRepos(getRecentRepos());
   }
@@ -183,7 +175,7 @@ export default function LandingPage() {
           </div>
 
           <h1 className="font-mono text-2xl font-bold tracking-wide mb-2">
-            TRACEPAPER
+            tracepaper
           </h1>
           <p className="text-[var(--bp-steel)] text-sm mb-8">
             Paste a public GitHub repo. Get a plain-English breakdown of what it
@@ -203,9 +195,9 @@ export default function LandingPage() {
               placeholder="github.com/owner/repo"
               disabled={submitting}
               className="w-full bg-transparent border border-[var(--bp-steel)] rounded-sm px-4 py-3
-                         font-mono text-sm placeholder:text-[var(--bp-steel)]/60
-                         focus:outline-none focus:border-[var(--bp-red)] transition-colors
-                         disabled:opacity-50"
+font-mono text-sm placeholder:text-[var(--bp-steel)]/60
+focus:outline-none focus:border-[var(--bp-red)] transition-colors
+disabled:opacity-50"
             />
             {error && (
               <p className="text-[var(--bp-red)] text-xs font-mono">{error}</p>
@@ -214,9 +206,9 @@ export default function LandingPage() {
               type="submit"
               disabled={submitting}
               className="w-full bg-[var(--bp-red)] text-[var(--bp-navy-deep)] font-mono text-sm
-                         font-bold py-3 rounded-sm transition-all duration-200
-                         hover:opacity-90 hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(212,85,46,0.3)]
-                         disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none"
+font-bold py-3 rounded-sm transition-all duration-200
+hover:opacity-90 hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(212,85,46,0.3)]
+disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none"
             >
               {submitting ? "OPENING…" : "ANALYZE →"}
             </button>
@@ -241,9 +233,9 @@ export default function LandingPage() {
                 }
                 onMouseLeave={() => heroDiagramRef.current?.clearHighlight()}
                 className="chip font-mono text-[11px] text-[var(--bp-steel)] border border-[var(--bp-steel)]/30
-                           rounded-full px-3 py-1 transition-all duration-200
-                           hover:text-[var(--bp-cream)] hover:border-[var(--bp-red)]/60
-                           hover:shadow-[0_0_12px_rgba(212,85,46,0.25)]"
+rounded-full px-3 py-1 transition-all duration-200
+hover:text-[var(--bp-cream)] hover:border-[var(--bp-red)]/60
+hover:shadow-[0_0_12px_rgba(212,85,46,0.25)]"
               >
                 {repo}
               </button>
@@ -258,29 +250,36 @@ export default function LandingPage() {
               </p>
               <div className="space-y-1.5">
                 {recentRepos.map((r) => (
-                  <button
+                  <div
                     key={`${r.owner}/${r.repo}`}
-                    onClick={() => handleRecentClick(r)}
-                    disabled={submitting}
-                    className="w-full flex items-center justify-between text-left px-3 py-2 rounded-sm
-                               border border-[var(--bp-steel)]/20 hover:border-[var(--bp-red)]/50
-                               transition-colors group disabled:opacity-50"
+                    className="flex items-center rounded-sm border border-[var(--bp-steel)]/20
+hover:border-[var(--bp-red)]/50 transition-colors group"
                   >
-                    <span className="font-mono text-xs text-[var(--bp-line)]">
-                      {r.owner}/{r.repo}
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] text-[var(--bp-steel)]">
+                    <button
+                      type="button"
+                      onClick={() => handleRecentClick(r)}
+                      disabled={submitting}
+                      className="flex-1 flex items-center justify-between text-left px-3 py-2
+disabled:opacity-50"
+                    >
+                      <span className="font-mono text-xs text-[var(--bp-line)]">
+                        {r.owner}/{r.repo}
+                      </span>
+                      <span className="font-mono text-[10px] text-[var(--bp-steel)] ml-2">
                         {formatRelativeTime(r.analyzedAt)}
                       </span>
-                      <span
-                        onClick={(e) => handleRemoveRecent(e, r)}
-                        className="text-[var(--bp-steel)] hover:text-[var(--bp-red)] transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <XIcon size={12} />
-                      </span>
-                    </span>
-                  </button>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveRecent(r)}
+                      aria-label={`Remove ${r.owner}/${r.repo} from recently analyzed`}
+                      className="px-3 py-2 text-[var(--bp-steel)] hover:text-[var(--bp-red)]
+transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100
+focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--bp-red)] rounded-sm"
+                    >
+                      <XIcon size={12} />
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>

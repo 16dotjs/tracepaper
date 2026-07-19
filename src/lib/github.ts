@@ -211,3 +211,18 @@ export function getRepoStats(tree: GitTreeItem[]): {
     totalFolders: relevant.filter((i) => i.type === "tree").length,
   };
 }
+export async function getRepoBranches(
+  owner: string,
+  repo: string,
+): Promise<string[]> {
+  const res = await fetch(
+    `${GITHUB_API}/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/branches?per_page=30`,
+    { headers: githubHeaders() },
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  if (!Array.isArray(data)) return [];
+  return data
+    .map((b: { name: string }) => b.name)
+    .filter((n): n is string => typeof n === "string");
+}

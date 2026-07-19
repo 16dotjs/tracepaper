@@ -38,6 +38,7 @@ const MAX_VISIBLE_FILES = 4;
 const COL_WIDTH = 380;
 const FILE_LABEL_MAX_WIDTH = COL_WIDTH - 40;
 const ROOM_LABEL_MAX_WIDTH = COL_WIDTH - 26;
+const SEARCH_DEBOUNCE_MS = 200;
 
 function fitTextToWidth(
   el: SVGTextElement,
@@ -76,9 +77,18 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
     const [selected, setSelected] = useState<SelectedFile | null>(null);
     const [showCode, setShowCode] = useState(false);
     const [expandedRooms, setExpandedRooms] = useState<Set<string>>(new Set());
-    const [searchQuery, setSearchQuery] = useState("");
+    const [searchInput, setSearchInput] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
 
-    const query = searchQuery.trim().toLowerCase();
+    useEffect(() => {
+      const handle = setTimeout(
+        () => setDebouncedSearch(searchInput),
+        SEARCH_DEBOUNCE_MS,
+      );
+      return () => clearTimeout(handle);
+    }, [searchInput]);
+
+    const query = debouncedSearch.trim().toLowerCase();
     const isSearching = query.length > 0;
     const totalMatches = isSearching
       ? folders.reduce(
@@ -510,16 +520,16 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
           />
           <input
             type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Filter files…"
             className="w-full bg-transparent border border-[var(--bp-steel)]/40 rounded-sm pl-8 pr-8 py-2
                      font-mono text-xs placeholder:text-[var(--bp-steel)]/50
                      focus:outline-none focus:border-[var(--bp-red)] transition-colors"
           />
-          {searchQuery && (
+          {searchInput && (
             <button
-              onClick={() => setSearchQuery("")}
+              onClick={() => setSearchInput("")}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--bp-steel)] hover:text-[var(--bp-red)] transition-colors"
             >
               <XIcon size={12} />
@@ -528,7 +538,7 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
         </div>
         {isSearching && totalMatches === 0 && (
           <p className="text-[10px] font-mono text-[var(--bp-steel)] mb-2">
-            No files match &quot;{searchQuery}&quot;
+            No files match &quot;{searchInput}&quot;
           </p>
         )}
 

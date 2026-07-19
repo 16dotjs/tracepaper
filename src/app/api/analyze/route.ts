@@ -6,6 +6,7 @@ import {
   selectKeyFiles,
   getFileContent,
   getRepoStats,
+  getRepoBranches,
 } from "@/lib/github";
 import { analyzeRepoOverview, RepoOverview } from "@/lib/claude";
 import { GitHubApiError, RepoInfo } from "@/lib/types";
@@ -13,12 +14,14 @@ import { getCached, setCached } from "@/lib/cache";
 import { checkRateLimit, getClientKey } from "@/lib/rateLimit";
 
 const CORE_FILE_LIMIT = 5;
-const ANALYZE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const ANALYZE_CACHE_TTL_MS = 60 * 60 * 1000;
 const RATE_LIMIT = 8;
 const RATE_WINDOW_MS = 60 * 1000;
 
 interface AnalyzeResult {
   repoInfo: RepoInfo;
+  currentBranch: string;
+  branches: string[];
   files: { path: string; type: string }[];
   overview: RepoOverview;
   stats: { totalFiles: number; totalFolders: number };
@@ -42,7 +45,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { repoUrl?: string };
+  let body: { repoUrl?: string; branch?: string };
   try {
     body = await request.json();
   } catch {
@@ -67,7 +70,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const cacheKey = `analyze:${parsed.owner}/${parsed.repo}`.toLowerCase();
+  const requestedBranch = body.branch?.trim() || null;
+  // Cache key now includes branch, since main and a feature branch can have completely
+  // different content. Old cache entries from before this change use a different key
+  // format — they'll simply age out via TTL rather than collide with anything.
+  const cacheKey =
+    `analyze:${parsed.owner}/${parsed.repo}:${requestedBranch ?? "default"}`.toLowerCase();
   const cached = getCached<AnalyzeResult>(cacheKey);
   if (cached) {
     return NextResponse.json({ ...cached, cached: true });
@@ -75,11 +83,34 @@ export async function POST(request: NextRequest) {
 
   try {
     const repoInfo = await getRepoInfo(parsed.owner, parsed.repo);
-    const fullTree = await getRepoTree(
-      repoInfo.owner,
-      repoInfo.repo,
-      repoInfo.defaultBranch,
-    );
+    const currentBranch = requestedBranch || repoInfo.defaultBranch;
+
+    // Branch list fetch runs in parallel with the tree fetch — it's independent and
+    // non-critical, no reason to make the user wait for it sequentially.
+    const branchesPromise = getRepoBranches(repoInfo.owner, repoInfo.repo);
+
+    let fullTree;
+    try {
+      fullTree = await getRepoTree(
+        repoInfo.owner,
+        repoInfo.repo,
+        currentBranch,
+      );
+    } catch (err) {
+      if (
+        err instanceof GitHubApiError &&
+        err.status === 404 &&
+        requestedBranch
+      ) {
+        throw new GitHubApiError(
+          `Branch "${requestedBranch}" not found in ${parsed.owner}/${parsed.repo}.`,
+          404,
+        );
+      }
+      throw err;
+    }
+
+    const branches = await branchesPromise;
     const keyFiles = selectKeyFiles(fullTree);
     const stats = getRepoStats(fullTree);
 
@@ -91,7 +122,7 @@ export async function POST(request: NextRequest) {
           repoInfo.owner,
           repoInfo.repo,
           path,
-          repoInfo.defaultBranch,
+          currentBranch,
         ),
       })),
     );
@@ -111,6 +142,8 @@ export async function POST(request: NextRequest) {
 
     const result: AnalyzeResult = {
       repoInfo,
+      currentBranch,
+      branches,
       files: keyFiles.map((f) => ({ path: f.path, type: f.type })),
       overview,
       stats,

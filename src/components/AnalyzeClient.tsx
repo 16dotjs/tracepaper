@@ -9,10 +9,11 @@ import {
   FileIcon,
   LinkSimpleIcon,
   CheckIcon,
+  TreeStructureIcon,
+  GitBranchIcon,
 } from "@phosphor-icons/react";
-import { TreeStructureIcon } from "@phosphor-icons/react";
-import DependencyGraph from "./DependencyGraph";
 import BlueprintTree, { BlueprintTreeHandle } from "@/components/BlueprintTree";
+import DependencyGraph from "./DependencyGraph";
 import QABox from "@/components/QABox";
 import { buildFolderTree } from "@/lib/repoTree";
 import { addRecentRepo } from "@/lib/recentRepos";
@@ -20,6 +21,8 @@ import { buildMarkdown, downloadMarkdown } from "@/lib/exportMarkdown";
 
 interface AnalyzeResponse {
   repoInfo: { owner: string; repo: string; defaultBranch: string };
+  currentBranch: string;
+  branches: string[];
   files: { path: string; type: string }[];
   overview: {
     summary: string;
@@ -81,7 +84,9 @@ function ShareButton({ repoLabel }: { repoLabel: string }) {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {}
+    } catch {
+      // Fails quietly without HTTPS/permissions — button just won't confirm.
+    }
   }
 
   return (
@@ -101,9 +106,11 @@ function ShareButton({ repoLabel }: { repoLabel: string }) {
 
 function AnalyzeAttempt({
   repoUrl,
+  branchParam,
   onRetry,
 }: {
   repoUrl: string;
+  branchParam: string | null;
   onRetry: () => void;
 }) {
   const router = useRouter();
@@ -119,7 +126,7 @@ function AnalyzeAttempt({
     fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repoUrl }),
+      body: JSON.stringify({ repoUrl, branch: branchParam || undefined }),
     })
       .then(async (res) => {
         const json = await res.json();
@@ -148,7 +155,13 @@ function AnalyzeAttempt({
     return () => {
       cancelled = true;
     };
-  }, [repoUrl]);
+  }, [repoUrl, branchParam]);
+
+  function handleBranchChange(newBranch: string) {
+    router.replace(
+      `/analyze?repo=${encodeURIComponent(repoUrl)}&branch=${encodeURIComponent(newBranch)}`,
+    );
+  }
 
   if (loading) {
     return (
@@ -232,18 +245,41 @@ function AnalyzeAttempt({
           </div>
         </div>
 
-        {data.stats && (
-          <div className="flex items-center gap-2 mb-8">
-            <span className="flex items-center gap-1.5 font-mono text-[11px] text-[var(--bp-line)] border border-[var(--bp-steel)]/30 rounded-full px-3 py-1">
-              <FolderIcon size={12} />
-              {data.stats.totalFolders} folders
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {data.stats && (
+            <>
+              <span className="flex items-center gap-1.5 font-mono text-[11px] text-[var(--bp-line)] border border-[var(--bp-steel)]/30 rounded-full px-3 py-1">
+                <FolderIcon size={12} />
+                {data.stats.totalFolders} folders
+              </span>
+              <span className="flex items-center gap-1.5 font-mono text-[11px] text-[var(--bp-line)] border border-[var(--bp-steel)]/30 rounded-full px-3 py-1">
+                <FileIcon size={12} />
+                {data.stats.totalFiles} files
+              </span>
+            </>
+          )}
+          {data.branches.length > 1 && (
+            <span className="flex items-center gap-1.5 font-mono text-[11px] text-[var(--bp-line)] border border-[var(--bp-steel)]/30 rounded-full pl-3 pr-1 py-1">
+              <GitBranchIcon size={12} />
+              <select
+                value={data.currentBranch}
+                onChange={(e) => handleBranchChange(e.target.value)}
+                className="bg-transparent focus:outline-none cursor-pointer"
+              >
+                {data.branches.map((b) => (
+                  <option
+                    key={b}
+                    value={b}
+                    className="bg-[var(--bp-navy)] text-[var(--bp-line)]"
+                  >
+                    {b}
+                  </option>
+                ))}
+              </select>
             </span>
-            <span className="flex items-center gap-1.5 font-mono text-[11px] text-[var(--bp-line)] border border-[var(--bp-steel)]/30 rounded-full px-3 py-1">
-              <FileIcon size={12} />
-              {data.stats.totalFiles} files
-            </span>
-          </div>
-        )}
+          )}
+        </div>
+
         <div className="flex gap-2 mb-4">
           <button
             onClick={() => setView("folders")}
@@ -274,7 +310,7 @@ function AnalyzeAttempt({
             ref={treeRef}
             owner={data.repoInfo.owner}
             repo={data.repoInfo.repo}
-            branch={data.repoInfo.defaultBranch}
+            branch={data.currentBranch}
             folders={folders}
             techStack={data.overview.techStack}
           />
@@ -282,14 +318,15 @@ function AnalyzeAttempt({
           <DependencyGraph
             owner={data.repoInfo.owner}
             repo={data.repoInfo.repo}
-            branch={data.repoInfo.defaultBranch}
+            branch={data.currentBranch}
             paths={allPaths}
           />
         )}
+
         <QABox
           owner={data.repoInfo.owner}
           repo={data.repoInfo.repo}
-          branch={data.repoInfo.defaultBranch}
+          branch={data.currentBranch}
           allPaths={allPaths}
           onAnswer={(relevantFiles) => {
             if (relevantFiles[0])
@@ -304,6 +341,7 @@ function AnalyzeAttempt({
 function AnalyzeShell() {
   const params = useSearchParams();
   const repoUrl = params.get("repo") ?? "";
+  const branchParam = params.get("branch");
   const [attempt, setAttempt] = useState(0);
 
   if (!repoUrl) {
@@ -318,8 +356,9 @@ function AnalyzeShell() {
 
   return (
     <AnalyzeAttempt
-      key={`${repoUrl}::${attempt}`}
+      key={`${repoUrl}::${branchParam ?? "default"}::${attempt}`}
       repoUrl={repoUrl}
+      branchParam={branchParam}
       onRetry={() => setAttempt((n) => n + 1)}
     />
   );

@@ -230,9 +230,6 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
         .filter((f) => f.startHereOrder)
         .sort((a, b) => a.startHereOrder! - b.startHereOrder!);
 
-      // NOTE: techStack is intentionally NOT interpolated into this markup string.
-      // It's Claude-generated content — it gets set via .textContent after render instead,
-      // same pattern as room/file labels. See #metaStack below.
       let markup = `
       <rect id="titleBlock" x="40" y="24" width="260" height="86" rx="2" fill="none" stroke="var(--bp-line)" stroke-width="1.4"/>
       <text class="meta-label" x="52" y="44">PROJECT</text>
@@ -301,9 +298,6 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
         ${clipDefs}
       </defs>` + markup;
 
-      // Set all Claude-derived and repo-derived text via .textContent (auto-escaped by the
-      // browser) rather than string interpolation into innerHTML — this is the fix for the
-      // stored-XSS finding from the code review.
       const metaStackEl = svg.querySelector<SVGTextElement>("#metaStack");
       if (metaStackEl)
         metaStackEl.textContent = techStack.slice(0, 3).join(" · ") || "—";
@@ -426,9 +420,6 @@ const BlueprintTree = forwardRef<BlueprintTreeHandle, BlueprintTreeProps>(
         ann.setAttribute("ry", String(ry));
         annotationLayer.appendChild(ann);
 
-        // Badge and note built via createElementNS + .textContent, not innerHTML — file.fullPath
-        // and file.startHereReason are, respectively, real repo path data and Claude-generated
-        // text derived from that repo's content. Neither is trustworthy enough for innerHTML.
         const badgeX = cx + rx + 14;
         const badge = document.createElementNS(NS, "g");
         const badgeCircle = document.createElementNS(NS, "circle");

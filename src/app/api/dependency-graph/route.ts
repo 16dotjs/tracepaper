@@ -85,8 +85,6 @@ export async function POST(request: NextRequest) {
       )
       .map((r) => r.value);
 
-    // tsconfig.json fetched deliberately, even if it wasn't already in `paths` — path-alias
-    // resolution matters enough not to leave to luck about the caller's file list.
     let tsconfigContent: string | null = null;
     const existingTsconfig = files.find((f) => f.path === "tsconfig.json");
     if (existingTsconfig) {
@@ -100,7 +98,7 @@ export async function POST(request: NextRequest) {
           branch,
         );
       } catch {
-        tsconfigContent = null; // repo may not use TypeScript at all — fine, aliases just won't resolve
+        tsconfigContent = null;
       }
     }
 

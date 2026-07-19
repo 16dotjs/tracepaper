@@ -11,10 +11,6 @@ export interface RateLimitResult {
   resetAt: number;
 }
 
-/** In-memory, per-instance rate limiting. Resets on redeploy and isn't shared across
- *  serverless instances — a real limitation, acceptable for this project's actual scale.
- *  If this becomes a genuine production concern, swap the internals for Upstash/Vercel KV;
- *  the function signature below wouldn't need to change. */
 export function checkRateLimit(
   key: string,
   limit: number,

@@ -56,9 +56,6 @@ function joinPath(...parts: string[]): string {
   return normalizeSegments(parts.join("/"));
 }
 
-/** tsconfig.json commonly contains comments, which breaks JSON.parse — stripped first.
- *  Only handles the common "@/*": ["./src/*"] wildcard pattern; exact (non-wildcard)
- *  mappings are rare enough to skip for v1. */
 export function parseTsconfigPaths(tsconfigContent: string): TsconfigAliases {
   const aliases: TsconfigAliases = {};
   try {
@@ -80,15 +77,10 @@ export function parseTsconfigPaths(tsconfigContent: string): TsconfigAliases {
       const target = value[0].replace(/^\.\//, "").replace(/\*$/, "");
       aliases[aliasPrefix] = target;
     });
-  } catch {
-    // Malformed or missing tsconfig — no aliases; relative/bare imports still work fine.
-  }
+  } catch {}
   return aliases;
 }
 
-/** Regex-based, not an AST — good enough beats perfect for v1. Known limitation: can't
- *  distinguish a real import from lookalike text inside a string or comment. Acceptable
- *  false-positive rate for a visualization tool, not acceptable for a linter. */
 export function extractImportSpecifiers(content: string): string[] {
   const specs = new Set<string>();
   let match: RegExpExecArray | null;
@@ -121,18 +113,15 @@ export function resolveImportPath(
     }
   }
 
-  if (candidateBase === null) return null; // bare package specifier (react, lodash) — external, not in graph
+  if (candidateBase === null) return null;
 
   for (const suffix of RESOLUTION_SUFFIXES) {
     const candidate = candidateBase + suffix;
     if (knownPaths.has(candidate)) return candidate;
   }
-  return null; // looked resolvable but isn't among the tracked file set — dropped, not shown as broken
+  return null;
 }
 
-/** Bellman-Ford-style relaxation, not a strict topological sort — deliberately, since real
- *  codebases have circular imports. Capping iterations guarantees termination even on a
- *  pathological cycle; the layout it produces in that case is "close enough," not perfect. */
 function computeLayers(
   nodes: string[],
   edges: GraphEdge[],
@@ -188,7 +177,7 @@ export function buildDependencyGraph(
         const looksLocal =
           spec.startsWith(".") ||
           Object.keys(aliases).some((p) => spec.startsWith(p));
-        if (looksLocal) unresolvedCount++; // looked local but wasn't in the analyzed subset — not a real error
+        if (looksLocal) unresolvedCount++;
         return;
       }
       const edgeKey = `${file.path}→${resolved}`;
@@ -199,8 +188,6 @@ export function buildDependencyGraph(
     });
   });
 
-  // Only files actually connected to something belong in a *dependency* graph —
-  // isolated files add clutter without value here.
   const nodePaths = Array.from(knownPaths).filter(
     (p) => isGraphEligible(p) && edges.some((e) => e.from === p || e.to === p),
   );

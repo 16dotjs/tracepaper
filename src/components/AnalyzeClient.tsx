@@ -73,7 +73,6 @@ function ShareButton({ repoLabel }: { repoLabel: string }) {
         await navigator.share({ title: `${repoLabel} — Tracepaper`, url });
         return;
       } catch {
-        // User cancelled the native share sheet — not an error, just do nothing.
         return;
       }
     }
@@ -82,9 +81,7 @@ function ShareButton({ repoLabel }: { repoLabel: string }) {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard API can fail without HTTPS or permissions — fail quietly, button just won't confirm.
-    }
+    } catch {}
   }
 
   return (

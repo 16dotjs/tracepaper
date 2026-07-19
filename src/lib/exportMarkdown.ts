@@ -10,10 +10,6 @@ interface ExportData {
   files: { path: string; type: string }[];
 }
 
-/** Groups files by their true immediate parent directory (full nesting preserved) —
- * intentionally different from repoTree.ts's buildFolderTree, which flattens everything
- * below the top-level folder for the visual tree's layout constraints. An export document
- * has no layout constraint, so it reflects the real folder structure exactly. */
 function groupFilesByFolder(
   files: { path: string; type: string }[],
 ): Map<string, string[]> {

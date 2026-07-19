@@ -4,6 +4,7 @@ import { buildDependencyGraph, isGraphEligible } from "@/lib/dependencyGraph";
 import { GitHubApiError } from "@/lib/types";
 import { getCached, setCached } from "@/lib/cache";
 import { checkRateLimit, getClientKey } from "@/lib/rateLimit";
+import { dedupeInFlight } from "@/lib/inFlight";
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const RATE_LIMIT = 6;
@@ -14,6 +15,7 @@ interface CachedGraph {
   nodes: { path: string; layer: number }[];
   edges: { from: string; to: string }[];
   unresolvedCount: number;
+  eligibleFileCount: number;
 }
 
 export async function POST(request: NextRequest) {
@@ -70,40 +72,48 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const codePaths = paths.filter(isGraphEligible);
+    const result = await dedupeInFlight(
+      cacheKey,
+      async (): Promise<CachedGraph> => {
+        const codePaths = paths.filter(isGraphEligible);
 
-    const fileResults = await Promise.allSettled(
-      codePaths.map(async (path) => ({
-        path,
-        content: await getFileContent(owner, repo, path, branch),
-      })),
-    );
-    const files = fileResults
-      .filter(
-        (r): r is PromiseFulfilledResult<{ path: string; content: string }> =>
-          r.status === "fulfilled",
-      )
-      .map((r) => r.value);
-
-    let tsconfigContent: string | null = null;
-    const existingTsconfig = files.find((f) => f.path === "tsconfig.json");
-    if (existingTsconfig) {
-      tsconfigContent = existingTsconfig.content;
-    } else {
-      try {
-        tsconfigContent = await getFileContent(
-          owner,
-          repo,
-          "tsconfig.json",
-          branch,
+        const fileResults = await Promise.allSettled(
+          codePaths.map(async (path) => ({
+            path,
+            content: await getFileContent(owner, repo, path, branch),
+          })),
         );
-      } catch {
-        tsconfigContent = null;
-      }
-    }
+        const files = fileResults
+          .filter(
+            (
+              r,
+            ): r is PromiseFulfilledResult<{ path: string; content: string }> =>
+              r.status === "fulfilled",
+          )
+          .map((r) => r.value);
 
-    const result = buildDependencyGraph(files, tsconfigContent);
-    setCached(cacheKey, result, CACHE_TTL_MS);
+        let tsconfigContent: string | null = null;
+        const existingTsconfig = files.find((f) => f.path === "tsconfig.json");
+        if (existingTsconfig) {
+          tsconfigContent = existingTsconfig.content;
+        } else {
+          try {
+            tsconfigContent = await getFileContent(
+              owner,
+              repo,
+              "tsconfig.json",
+              branch,
+            );
+          } catch {
+            tsconfigContent = null;
+          }
+        }
+
+        const graphResult = buildDependencyGraph(files, tsconfigContent);
+        setCached(cacheKey, graphResult, CACHE_TTL_MS);
+        return graphResult;
+      },
+    );
 
     return NextResponse.json({ ...result, cached: false });
   } catch (err) {

@@ -12,6 +12,7 @@ import { analyzeRepoOverview, RepoOverview } from "@/lib/claude";
 import { GitHubApiError, RepoInfo } from "@/lib/types";
 import { getCached, setCached } from "@/lib/cache";
 import { checkRateLimit, getClientKey } from "@/lib/rateLimit";
+import { dedupeInFlight } from "@/lib/inFlight";
 
 const CORE_FILE_LIMIT = 5;
 const ANALYZE_CACHE_TTL_MS = 60 * 60 * 1000;
@@ -71,85 +72,91 @@ export async function POST(request: NextRequest) {
   }
 
   const requestedBranch = body.branch?.trim() || null;
-  // Cache key now includes branch, since main and a feature branch can have completely
-  // different content. Old cache entries from before this change use a different key
-  // format — they'll simply age out via TTL rather than collide with anything.
   const cacheKey =
     `analyze:${parsed.owner}/${parsed.repo}:${requestedBranch ?? "default"}`.toLowerCase();
+
   const cached = getCached<AnalyzeResult>(cacheKey);
   if (cached) {
     return NextResponse.json({ ...cached, cached: true });
   }
 
   try {
-    const repoInfo = await getRepoInfo(parsed.owner, parsed.repo);
-    const currentBranch = requestedBranch || repoInfo.defaultBranch;
+    const result = await dedupeInFlight(
+      cacheKey,
+      async (): Promise<AnalyzeResult> => {
+        const repoInfo = await getRepoInfo(parsed.owner, parsed.repo);
+        const currentBranch = requestedBranch || repoInfo.defaultBranch;
 
-    // Branch list fetch runs in parallel with the tree fetch — it's independent and
-    // non-critical, no reason to make the user wait for it sequentially.
-    const branchesPromise = getRepoBranches(repoInfo.owner, repoInfo.repo);
+        const branchesPromise = getRepoBranches(repoInfo.owner, repoInfo.repo);
 
-    let fullTree;
-    try {
-      fullTree = await getRepoTree(
-        repoInfo.owner,
-        repoInfo.repo,
-        currentBranch,
-      );
-    } catch (err) {
-      if (
-        err instanceof GitHubApiError &&
-        err.status === 404 &&
-        requestedBranch
-      ) {
-        throw new GitHubApiError(
-          `Branch "${requestedBranch}" not found in ${parsed.owner}/${parsed.repo}.`,
-          404,
+        let fullTree;
+        try {
+          fullTree = await getRepoTree(
+            repoInfo.owner,
+            repoInfo.repo,
+            currentBranch,
+          );
+        } catch (err) {
+          if (
+            err instanceof GitHubApiError &&
+            err.status === 404 &&
+            requestedBranch
+          ) {
+            throw new GitHubApiError(
+              `Branch "${requestedBranch}" not found in ${parsed.owner}/${parsed.repo}.`,
+              404,
+            );
+          }
+          throw err;
+        }
+
+        const branches = await branchesPromise;
+        const keyFiles = selectKeyFiles(fullTree);
+        const stats = getRepoStats(fullTree);
+
+        const coreFilePaths = keyFiles
+          .slice(0, CORE_FILE_LIMIT)
+          .map((f) => f.path);
+        const coreFileResults = await Promise.allSettled(
+          coreFilePaths.map(async (path) => ({
+            path,
+            content: await getFileContent(
+              repoInfo.owner,
+              repoInfo.repo,
+              path,
+              currentBranch,
+            ),
+          })),
         );
-      }
-      throw err;
-    }
 
-    const branches = await branchesPromise;
-    const keyFiles = selectKeyFiles(fullTree);
-    const stats = getRepoStats(fullTree);
+        const coreFiles = coreFileResults
+          .filter(
+            (
+              r,
+            ): r is PromiseFulfilledResult<{ path: string; content: string }> =>
+              r.status === "fulfilled",
+          )
+          .map((r) => r.value);
 
-    const coreFilePaths = keyFiles.slice(0, CORE_FILE_LIMIT).map((f) => f.path);
-    const coreFileResults = await Promise.allSettled(
-      coreFilePaths.map(async (path) => ({
-        path,
-        content: await getFileContent(
-          repoInfo.owner,
-          repoInfo.repo,
-          path,
+        const overview = await analyzeRepoOverview(
+          repoInfo,
+          keyFiles.map((f) => f.path),
+          coreFiles,
+        );
+
+        const finalResult: AnalyzeResult = {
+          repoInfo,
           currentBranch,
-        ),
-      })),
+          branches,
+          files: keyFiles.map((f) => ({ path: f.path, type: f.type })),
+          overview,
+          stats,
+        };
+
+        setCached(cacheKey, finalResult, ANALYZE_CACHE_TTL_MS);
+        return finalResult;
+      },
     );
-
-    const coreFiles = coreFileResults
-      .filter(
-        (r): r is PromiseFulfilledResult<{ path: string; content: string }> =>
-          r.status === "fulfilled",
-      )
-      .map((r) => r.value);
-
-    const overview = await analyzeRepoOverview(
-      repoInfo,
-      keyFiles.map((f) => f.path),
-      coreFiles,
-    );
-
-    const result: AnalyzeResult = {
-      repoInfo,
-      currentBranch,
-      branches,
-      files: keyFiles.map((f) => ({ path: f.path, type: f.type })),
-      overview,
-      stats,
-    };
-
-    setCached(cacheKey, result, ANALYZE_CACHE_TTL_MS);
 
     return NextResponse.json({ ...result, cached: false });
   } catch (err) {

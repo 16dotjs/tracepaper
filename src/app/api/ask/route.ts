@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFileContent } from "@/lib/github";
-import { answerRepoQuestion } from "@/lib/claude";
+import { answerRepoQuestion, AskAnswer } from "@/lib/claude";
 import { GitHubApiError } from "@/lib/types";
 import { checkRateLimit, getClientKey } from "@/lib/rateLimit";
+import { dedupeInFlight } from "@/lib/inFlight";
 
 const RATE_LIMIT = 8;
 const RATE_WINDOW_MS = 60 * 1000;
@@ -68,12 +69,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid file list." }, { status: 400 });
   }
 
+  const dedupeKey = `ask:${owner}/${repo}/${branch}:${question.trim().toLowerCase()}`;
+
   try {
-    const result = await answerRepoQuestion(
-      { owner, repo, defaultBranch: branch },
-      question.trim(),
-      allPaths,
-      (path) => getFileContent(owner, repo, path, branch),
+    const result = await dedupeInFlight<AskAnswer>(dedupeKey, () =>
+      answerRepoQuestion(
+        { owner, repo, defaultBranch: branch },
+        question.trim(),
+        allPaths,
+        (path) => getFileContent(owner, repo, path, branch),
+      ),
     );
     return NextResponse.json(result);
   } catch (err) {

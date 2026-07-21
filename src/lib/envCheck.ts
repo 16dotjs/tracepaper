@@ -1,4 +1,4 @@
-export interface EnvSource {
+export interface EnvSource extends NodeJS.ProcessEnv {
   USE_MOCK_CLAUDE?: string;
   ANTHROPIC_API_KEY?: string;
   GITHUB_TOKEN?: string;

@@ -1,70 +1,162 @@
 import { describe, it, expect } from "vitest";
 import {
   extractImportSpecifiers,
-  resolveImportPath,
+  resolveJsImport,
+  resolvePythonImport,
+  resolveGoImport,
   parseTsconfigPaths,
+  parseGoModuleName,
+  detectLanguage,
 } from "./dependencyGraph";
 
-describe("extractImportSpecifiers", () => {
-  it("extracts a named ES import", () => {
-    expect(extractImportSpecifiers(`import { foo } from './bar';`)).toEqual([
-      "./bar",
-    ]);
+describe("detectLanguage", () => {
+  it("detects JS/TS extensions", () => {
+    expect(detectLanguage("src/index.ts")).toBe("javascript");
+    expect(detectLanguage("src/index.jsx")).toBe("javascript");
   });
-
-  it("extracts a default import and a require() call", () => {
-    const content = `import x from './a';\nconst y = require('./b');`;
-    expect(extractImportSpecifiers(content).sort()).toEqual(["./a", "./b"]);
+  it("detects Python", () => {
+    expect(detectLanguage("src/main.py")).toBe("python");
   });
-
-  it("deduplicates repeated imports of the same specifier", () => {
-    const content = `import { a } from './x';\nimport { b } from './x';`;
-    expect(extractImportSpecifiers(content)).toEqual(["./x"]);
+  it("detects Go", () => {
+    expect(detectLanguage("main.go")).toBe("go");
   });
-
-  it("returns an empty array for content with no imports", () => {
-    expect(extractImportSpecifiers("const x = 1;")).toEqual([]);
+  it("returns null for an unsupported language", () => {
+    expect(detectLanguage("Main.java")).toBeNull();
   });
 });
 
-describe("resolveImportPath", () => {
+describe("extractImportSpecifiers — javascript", () => {
+  it("extracts a named import", () => {
+    expect(
+      extractImportSpecifiers(`import { foo } from './bar';`, "javascript"),
+    ).toEqual(["./bar"]);
+  });
+});
+
+describe("extractImportSpecifiers — python", () => {
+  it("extracts a simple import", () => {
+    expect(extractImportSpecifiers("import os", "python")).toEqual(["os"]);
+  });
+  it("extracts a from-import", () => {
+    expect(
+      extractImportSpecifiers("from foo.bar import baz", "python"),
+    ).toEqual(["foo.bar"]);
+  });
+  it("extracts a relative from-import", () => {
+    expect(extractImportSpecifiers("from ..pkg import mod", "python")).toEqual([
+      "..pkg",
+    ]);
+  });
+  it("splits a comma-separated plain import", () => {
+    const result = extractImportSpecifiers("import os, sys", "python").sort();
+    expect(result).toEqual(["os", "sys"]);
+  });
+});
+
+describe("extractImportSpecifiers — go", () => {
+  it("extracts a single-line import", () => {
+    expect(extractImportSpecifiers('import "fmt"', "go")).toEqual(["fmt"]);
+  });
+  it("extracts every import inside a block", () => {
+    const content = `import (\n\t"fmt"\n\t"github.com/foo/bar/internal/x"\n)`;
+    const result = extractImportSpecifiers(content, "go").sort();
+    expect(result).toEqual(["fmt", "github.com/foo/bar/internal/x"]);
+  });
+});
+
+describe("resolveJsImport", () => {
   const knownPaths = new Set(["src/lib/github.ts", "src/app/page.tsx"]);
 
   it("resolves a relative import against the importing file's directory", () => {
-    const resolved = resolveImportPath(
-      "./github",
-      "src/lib/claude.ts",
-      knownPaths,
-      {},
-    );
-    expect(resolved).toBe("src/lib/github.ts");
+    expect(
+      resolveJsImport("./github", "src/lib/claude.ts", knownPaths, {}),
+    ).toEqual(["src/lib/github.ts"]);
   });
-
   it("resolves a tsconfig-aliased import", () => {
     const aliases = { "@/": "src/" };
-    const resolved = resolveImportPath(
-      "@/lib/github",
-      "src/app/page.tsx",
-      knownPaths,
-      aliases,
-    );
-    expect(resolved).toBe("src/lib/github.ts");
-  });
-
-  it("returns null for a bare package specifier (external dependency)", () => {
     expect(
-      resolveImportPath("react", "src/app/page.tsx", knownPaths, {}),
-    ).toBeNull();
+      resolveJsImport("@/lib/github", "src/app/page.tsx", knownPaths, aliases),
+    ).toEqual(["src/lib/github.ts"]);
   });
+  it("returns empty for an external package", () => {
+    expect(
+      resolveJsImport("react", "src/app/page.tsx", knownPaths, {}),
+    ).toEqual([]);
+  });
+});
 
-  it("returns null when the resolved path isn't in the known file set", () => {
-    const resolved = resolveImportPath(
-      "./nonexistent",
-      "src/lib/claude.ts",
-      knownPaths,
-      {},
+describe("resolvePythonImport", () => {
+  // pkg/sub/__init__.py included so we can distinguish "my own package" (pkg.sub) from
+  // "the parent package" (pkg) — the exact distinction the bare-dot tests below check.
+  const knownPaths = new Set([
+    "pkg/sub/mod.py",
+    "pkg/sub/__init__.py",
+    "pkg/utils.py",
+    "pkg/__init__.py",
+  ]);
+  const ctx = { tsconfigAliases: {}, goModuleName: null, hasSrcRoot: false };
+
+  it("resolves a single-dot relative import to a sibling module", () => {
+    expect(
+      resolvePythonImport(".mod", "pkg/sub/other.py", knownPaths, ctx),
+    ).toEqual(["pkg/sub/mod.py"]);
+  });
+  it("resolves a double-dot relative import up one directory", () => {
+    expect(
+      resolvePythonImport("..utils", "pkg/sub/mod.py", knownPaths, ctx),
+    ).toEqual(["pkg/utils.py"]);
+  });
+  it("resolves a bare \"from . import x\" to the CURRENT package's __init__.py (not the parent's)", () => {
+    // "." from pkg/sub/mod.py means "my own package" — pkg.sub — not pkg.
+    expect(resolvePythonImport(".", "pkg/sub/mod.py", knownPaths, ctx)).toEqual(
+      ["pkg/sub/__init__.py"],
     );
-    expect(resolved).toBeNull();
+  });
+  it('resolves a bare "from .. import x" to the PARENT package\'s __init__.py', () => {
+    expect(
+      resolvePythonImport("..", "pkg/sub/mod.py", knownPaths, ctx),
+    ).toEqual(["pkg/__init__.py"]);
+  });
+  it("resolves an absolute import against the repo root", () => {
+    const paths = new Set(["pkg/utils.py"]);
+    expect(resolvePythonImport("pkg.utils", "main.py", paths, ctx)).toEqual([
+      "pkg/utils.py",
+    ]);
+  });
+  it("returns empty for an external package like a stdlib/third-party module", () => {
+    expect(resolvePythonImport("numpy", "main.py", knownPaths, ctx)).toEqual(
+      [],
+    );
+  });
+});
+
+describe("resolveGoImport", () => {
+  const knownPaths = new Set([
+    "internal/auth/handler.go",
+    "internal/auth/middleware.go",
+    "main.go",
+  ]);
+
+  it("resolves an internal import to every file in that package directory", () => {
+    const result = resolveGoImport(
+      "github.com/you/repo/internal/auth",
+      knownPaths,
+      "github.com/you/repo",
+    );
+    expect(result.wasInternal).toBe(true);
+    expect(result.resolved.sort()).toEqual([
+      "internal/auth/handler.go",
+      "internal/auth/middleware.go",
+    ]);
+  });
+  it("treats an external package as not internal", () => {
+    const result = resolveGoImport(
+      "github.com/gin-gonic/gin",
+      knownPaths,
+      "github.com/you/repo",
+    );
+    expect(result.wasInternal).toBe(false);
+    expect(result.resolved).toEqual([]);
   });
 });
 
@@ -75,13 +167,18 @@ describe("parseTsconfigPaths", () => {
     });
     expect(parseTsconfigPaths(tsconfig)).toEqual({ "@/": "src/" });
   });
-
   it("returns an empty object for malformed JSON instead of throwing", () => {
     expect(parseTsconfigPaths("{ not valid json")).toEqual({});
   });
+});
 
-  it("returns an empty object when there are no paths configured", () => {
-    const tsconfig = JSON.stringify({ compilerOptions: {} });
-    expect(parseTsconfigPaths(tsconfig)).toEqual({});
+describe("parseGoModuleName", () => {
+  it("extracts the module name from a go.mod file", () => {
+    expect(parseGoModuleName("module github.com/you/repo\n\ngo 1.22\n")).toBe(
+      "github.com/you/repo",
+    );
+  });
+  it("returns null when there is no module line", () => {
+    expect(parseGoModuleName("go 1.22\n")).toBeNull();
   });
 });

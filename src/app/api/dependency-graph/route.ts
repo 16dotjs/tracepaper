@@ -18,6 +18,19 @@ interface CachedGraph {
   eligibleFileCount: number;
 }
 
+async function tryFetchConfig(
+  owner: string,
+  repo: string,
+  path: string,
+  branch: string,
+): Promise<string | null> {
+  try {
+    return await getFileContent(owner, repo, path, branch);
+  } catch {
+    return null; // Absent — perfectly normal for repos not using that language/tool.
+  }
+}
+
 export async function POST(request: NextRequest) {
   const rl = checkRateLimit(
     `graph:${getClientKey(request)}`,
@@ -92,24 +105,21 @@ export async function POST(request: NextRequest) {
           )
           .map((r) => r.value);
 
-        let tsconfigContent: string | null = null;
         const existingTsconfig = files.find((f) => f.path === "tsconfig.json");
-        if (existingTsconfig) {
-          tsconfigContent = existingTsconfig.content;
-        } else {
-          try {
-            tsconfigContent = await getFileContent(
-              owner,
-              repo,
-              "tsconfig.json",
-              branch,
-            );
-          } catch {
-            tsconfigContent = null;
-          }
-        }
+        const tsconfigContent = existingTsconfig
+          ? existingTsconfig.content
+          : await tryFetchConfig(owner, repo, "tsconfig.json", branch);
 
-        const graphResult = buildDependencyGraph(files, tsconfigContent);
+        const existingGoMod = files.find((f) => f.path === "go.mod");
+        const goModContent = existingGoMod
+          ? existingGoMod.content
+          : await tryFetchConfig(owner, repo, "go.mod", branch);
+
+        const graphResult = buildDependencyGraph(
+          files,
+          tsconfigContent,
+          goModContent,
+        );
         setCached(cacheKey, graphResult, CACHE_TTL_MS);
         return graphResult;
       },

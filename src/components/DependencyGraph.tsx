@@ -267,7 +267,7 @@ export default function DependencyGraph({
   if (!nodes || nodes.length === 0) {
     const message =
       eligibleFileCount === 0
-        ? "None of the analyzed files are in a language this feature currently supports (JavaScript/TypeScript only for now)."
+        ? "None of the analyzed files are in a language this feature currently supports (JavaScript/TypeScript Python, or Go)."
         : unresolvedCount > 0
           ? `Found ${eligibleFileCount} JS/TS file${eligibleFileCount > 1 ? "s" : ""} in the sample, but the files they import weren't part of this analysis's 40-file subset — so no connections could be drawn between files that are actually here.`
           : `Found ${eligibleFileCount} JS/TS file${eligibleFileCount > 1 ? "s" : ""} in the sample, but none of them import each other directly (they may only import external packages).`;

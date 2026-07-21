@@ -41,6 +41,7 @@ interface AnalyzeError {
 function errorHeadline(err: AnalyzeError): string {
   if (err.status === 404) return "Repo not found";
   if (err.status === 403 || err.status === 429) return "Rate limited";
+  if (err.status === 504) return "Request timed out";
   if (err.status === 400) return "Invalid repo";
   return "Something went wrong";
 }

@@ -1,7 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { RepoInfo } from "./types";
+import { RepoInfo, ClaudeTimeoutError } from "./types";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const CLAUDE_TIMEOUT_MS = 25_000;
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  timeout: CLAUDE_TIMEOUT_MS,
+});
 const MODEL = "claude-haiku-4-5-20251001";
 const USE_MOCK = process.env.USE_MOCK_CLAUDE === "true";
 
@@ -19,6 +23,24 @@ export interface RepoOverview {
 export interface AskAnswer {
   answer: string;
   relevantFiles: string[];
+}
+
+interface ClaudeMessageParams {
+  model: string;
+  max_tokens: number;
+  system: string;
+  messages: { role: "user"; content: string }[];
+}
+
+async function createMessage(params: ClaudeMessageParams) {
+  try {
+    return await anthropic.messages.create(params);
+  } catch (err) {
+    if (err instanceof Anthropic.APIConnectionTimeoutError) {
+      throw new ClaudeTimeoutError();
+    }
+    throw err;
+  }
 }
 
 function mockOverview(repoInfo: RepoInfo, allPaths: string[]): RepoOverview {
@@ -43,11 +65,11 @@ You will be given a file listing and the contents of a few key files, inside <re
 
 Respond with ONLY valid JSON, no markdown formatting, no code fences, no preamble. Use this exact shape:
 {
-  "summary": "2-4 sentence plain-English explanation of what this project does and how it's organized",
-  "techStack": ["list", "of", "key", "technologies", "detected"],
-  "startHere": [
-    { "path": "relative/file/path", "reason": "one sentence on why this is a good starting point" }
-  ]
+"summary": "2-4 sentence plain-English explanation of what this project does and how it's organized",
+"techStack": ["list", "of", "key", "technologies", "detected"],
+"startHere": [
+{ "path": "relative/file/path", "reason": "one sentence on why this is a good starting point" }
+]
 }
 
 Pick 3-5 files for "startHere" — the files a new contributor should read first, in the order they should read them.`;
@@ -82,7 +104,7 @@ export async function analyzeRepoOverview(
     return mockOverview(repoInfo, allPaths);
   }
 
-  const response = await anthropic.messages.create({
+  const response = await createMessage({
     model: MODEL,
     max_tokens: 1024,
     system: OVERVIEW_SYSTEM,
@@ -134,7 +156,7 @@ export async function explainFile(
     return `[MOCK] Placeholder explanation for ${filePath}. (Real file is ${fileContent.length} characters — confirms GitHub fetch works even in mock mode.)`;
   }
 
-  const response = await anthropic.messages.create({
+  const response = await createMessage({
     model: MODEL,
     max_tokens: 300,
     system: EXPLAIN_SYSTEM,
@@ -218,7 +240,7 @@ export async function answerRepoQuestion(
     return mockAnswer(question, allPaths);
   }
 
-  const locateResponse = await anthropic.messages.create({
+  const locateResponse = await createMessage({
     model: MODEL,
     max_tokens: 200,
     system: LOCATE_SYSTEM,
@@ -257,7 +279,7 @@ export async function answerRepoQuestion(
     )
     .map((r) => r.value);
 
-  const answerResponse = await anthropic.messages.create({
+  const answerResponse = await createMessage({
     model: MODEL,
     max_tokens: 400,
     system: ANSWER_SYSTEM,

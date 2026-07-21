@@ -20,3 +20,10 @@ export class GitHubApiError extends Error {
     this.name = "GitHubApiError";
   }
 }
+
+export class ClaudeTimeoutError extends Error {
+  constructor(message = "Claude took too long to respond . Please try again.") {
+    super(message);
+    this.name = "ClaudeTimeoutError";
+  }
+}

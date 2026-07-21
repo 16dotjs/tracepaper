@@ -9,7 +9,7 @@ import {
   getRepoBranches,
 } from "@/lib/github";
 import { analyzeRepoOverview, RepoOverview } from "@/lib/claude";
-import { GitHubApiError, RepoInfo } from "@/lib/types";
+import { GitHubApiError, ClaudeTimeoutError, RepoInfo } from "@/lib/types";
 import { getCached, setCached } from "@/lib/cache";
 import { checkRateLimit, getClientKey } from "@/lib/rateLimit";
 import { dedupeInFlight } from "@/lib/inFlight";
@@ -162,6 +162,9 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     if (err instanceof GitHubApiError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    if (err instanceof ClaudeTimeoutError) {
+      return NextResponse.json({ error: err.message }, { status: 504 });
     }
     const message =
       err instanceof Error ? err.message : "Unknown error analyzing repo";

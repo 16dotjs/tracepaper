@@ -15,23 +15,18 @@ import {
 import BlueprintTree, { BlueprintTreeHandle } from "@/components/BlueprintTree";
 import DependencyGraph from "./DependencyGraph";
 import QABox from "@/components/QABox";
+import AnalysisProgressDiagram from "./AnalysisProgressDiagram";
 import { buildFolderTree } from "@/lib/repoTree";
 import { addRecentRepo } from "@/lib/recentRepos";
 import { buildMarkdown, downloadMarkdown } from "@/lib/exportMarkdown";
+import {
+  AnalyzeResult,
+  AnalyzeStage,
+  AnalyzeStreamEvent,
+  parseSSEBuffer,
+} from "@/lib/analyzeProtocol";
 
-interface AnalyzeResponse {
-  repoInfo: { owner: string; repo: string; defaultBranch: string };
-  currentBranch: string;
-  branches: string[];
-  files: { path: string; type: string }[];
-  overview: {
-    summary: string;
-    techStack: string[];
-    startHere: { path: string; reason: string }[];
-  };
-  stats?: { totalFiles: number; totalFolders: number };
-  cached?: boolean;
-}
+type AnalyzeResponse = AnalyzeResult & { cached?: boolean };
 
 interface AnalyzeError {
   message: string;
@@ -46,24 +41,27 @@ function errorHeadline(err: AnalyzeError): string {
   return "Something went wrong";
 }
 
-function LoadingIndicator({ repoUrl }: { repoUrl: string }) {
-  return (
-    <div className="flex flex-col items-center gap-4">
-      <svg viewBox="0 0 120 80" className="w-24 h-16">
-        <rect
-          className="loading-box-rect"
-          x="4"
-          y="4"
-          width="112"
-          height="72"
-          rx="2"
-        />
-      </svg>
-      <p className="font-mono text-[var(--bp-steel)] text-sm">
-        Reading {repoUrl}…
-      </p>
-    </div>
-  );
+/** Reads the Web Streams API reader in a loop, delegating actual event extraction to the
+ * pure, unit-tested parseSSEBuffer — this loop itself is thin glue, deliberately not
+ * covered by a unit test (mocking the Streams API for it buys little over testing the
+ * parsing logic it calls directly). */
+async function readAnalyzeStream(
+  res: Response,
+  onEvent: (event: AnalyzeStreamEvent) => void,
+): Promise<void> {
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("Streaming is not supported in this browser.");
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const { events, remainder } = parseSSEBuffer(buffer);
+    buffer = remainder;
+    events.forEach(onEvent);
+  }
 }
 
 function ShareButton({ repoLabel }: { repoLabel: string }) {
@@ -85,9 +83,7 @@ function ShareButton({ repoLabel }: { repoLabel: string }) {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Fails quietly without HTTPS/permissions — button just won't confirm.
-    }
+    } catch {}
   }
 
   return (
@@ -120,39 +116,68 @@ function AnalyzeAttempt({
   const [error, setError] = useState<AnalyzeError | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"folders" | "graph">("folders");
+  const [stagesDone, setStagesDone] = useState<Set<AnalyzeStage>>(new Set());
+  const [joining, setJoining] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
-    fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repoUrl, branch: branchParam || undefined }),
-    })
-      .then(async (res) => {
-        const json = await res.json();
-        if (!res.ok)
+    async function run() {
+      try {
+        const res = await fetch("/api/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repoUrl, branch: branchParam || undefined }),
+        });
+
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
           throw {
             message: json.error ?? "Something went wrong.",
             status: res.status,
           };
-        if (!cancelled) {
-          setData(json);
-          addRecentRepo(json.repoInfo.owner, json.repoInfo.repo);
         }
-      })
-      .catch((err: AnalyzeError | Error) => {
+
+        const contentType = res.headers.get("Content-Type") ?? "";
+        if (contentType.includes("application/json")) {
+          // Cache hit — the full result is already here, no streaming needed.
+          const json = await res.json();
+          if (!cancelled) {
+            setData(json);
+            addRecentRepo(json.repoInfo.owner, json.repoInfo.repo);
+          }
+          return;
+        }
+
+        await readAnalyzeStream(res, (event) => {
+          if (cancelled) return;
+          if (event.type === "joining") {
+            setJoining(true);
+          } else if (event.type === "stage") {
+            setStagesDone((prev) => new Set(prev).add(event.stage));
+          } else if (event.type === "complete") {
+            setData({ ...event.result, cached: event.cached });
+            addRecentRepo(
+              event.result.repoInfo.owner,
+              event.result.repoInfo.repo,
+            );
+          } else if (event.type === "error") {
+            throw { message: event.message, status: event.status };
+          }
+        });
+      } catch (err) {
         if (cancelled) return;
         if (err instanceof Error) {
           setError({ message: err.message, status: 0 });
         } else {
-          setError(err);
+          setError(err as AnalyzeError);
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    }
 
+    run();
     return () => {
       cancelled = true;
     };
@@ -167,7 +192,11 @@ function AnalyzeAttempt({
   if (loading) {
     return (
       <main className="min-h-screen flex items-center justify-center">
-        <LoadingIndicator repoUrl={repoUrl} />
+        <AnalysisProgressDiagram
+          repoUrl={repoUrl}
+          stagesDone={stagesDone}
+          joining={joining}
+        />
       </main>
     );
   }

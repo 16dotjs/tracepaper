@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { dedupeInFlight } from "./inFlight";
+import { dedupeInFlight, isInFlight } from "./inFlight";
 
 describe("dedupeInFlight", () => {
   it("coalesces concurrent calls with the same key into one execution", async () => {
@@ -52,5 +52,20 @@ describe("dedupeInFlight", () => {
     expect(b).toBe("b");
     expect(fnA).toHaveBeenCalledTimes(1);
     expect(fnB).toHaveBeenCalledTimes(1);
+  });
+  it("isInFlight reflects whether a key currently has a pending promise", async () => {
+    const key = `test-${Math.random()}`;
+    let resolveFn: (v: string) => void;
+    const pending = new Promise<string>((resolve) => {
+      resolveFn = resolve;
+    });
+
+    expect(isInFlight(key)).toBe(false);
+    const call = dedupeInFlight(key, () => pending);
+    expect(isInFlight(key)).toBe(true);
+
+    resolveFn!("done");
+    await call;
+    expect(isInFlight(key)).toBe(false);
   });
 });

@@ -16,3 +16,7 @@ export async function dedupeInFlight<T>(
   inFlightRequests.set(key, promise);
   return promise;
 }
+
+export function isInFlight(key: string): boolean {
+  return inFlightRequests.has(key);
+}
